@@ -1,0 +1,21 @@
+{
+  "name": "prism",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:shared": "npm run build -w @prism/shared",
+    "build:indexer": "npm run build -w @prism/indexer",
+    "build:oracle": "npm run build -w @prism/oracle",
+    "build:web": "npm run build -w @prism/web",
+    "dev:indexer": "npm run dev -w @prism/indexer",
+    "dev:oracle": "npm run dev -w @prism/oracle",
+    "dev:web": "npm run dev -w @prism/web",
+    "build:ts": "npm run build:shared && npm run build:indexer && npm run build:oracle"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
