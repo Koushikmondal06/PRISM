@@ -93,7 +93,7 @@ async function tick() {
   // STEP 1: Fetch current PRISM Market accounts from Solana
   if (cfg) {
     try {
-      const onChainMarkets = await cfg.program.account.market.all();
+      const onChainMarkets = await (cfg.program.account as any).market.all();
       for (const onChain of onChainMarkets) {
         const data = onChain.account as any;
         const pubkeyStr = onChain.publicKey.toBase58();

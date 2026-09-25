@@ -1,26 +1,48 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState, Component, ErrorInfo, ReactNode } from "react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { BN, Program, AnchorProvider } from "@coral-xyz/anchor";
-import {
-  PublicKey,
-  SystemProgram,
-  Transaction,
-} from "@solana/web3.js";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
-  getAccount,
 } from "@solana/spl-token";
 import { type StoredMarket, calculateLmsrCost, calculateLmsrPrices } from "@prism/shared";
+import confetti from "canvas-confetti";
+import {
+  TrendingUp,
+  Sparkles,
+  Activity,
+  Search,
+  RefreshCw,
+  ExternalLink,
+  CheckCircle2,
+  AlertTriangle,
+  Coins,
+  Lock,
+  Award,
+  Filter,
+  Layers,
+  ArrowLeft,
+  DollarSign,
+  ShieldCheck,
+  ChevronRight,
+  Info,
+  Globe
+} from "lucide-react";
+
 import idl from "./idl/prism.json";
 import AdminPage from "./AdminPage";
 import TransactionHistoryPage from "./TransactionHistoryPage";
 import MarketActivity from "./MarketActivity";
+import LandingPage from "./LandingPage";
+import LandingContent from "./LandingContent";
+import { GradientWave } from "./GradientWave";
+import PRISMBackground from "./PRISMBackground";
 
 const PROGRAM_ID = new PublicKey(
-  import.meta.env.VITE_PROGRAM_ID || idl.address
+  import.meta.env.VITE_PROGRAM_ID || (idl as any).address
 );
 const USDC_MINT = new PublicKey(
   import.meta.env.VITE_USDC_MINT || "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr"
@@ -51,12 +73,6 @@ function positionPda(market: PublicKey, user: PublicKey) {
   );
 }
 
-function formatUsd(micro: number) {
-  return (micro / 1_000_000).toFixed(2);
-}
-
-import React, { Component, ErrorInfo, ReactNode } from "react";
-
 interface ErrorBoundaryProps {
   children: ReactNode;
 }
@@ -83,9 +99,12 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: "20px", color: "red", background: "#fee" }}>
-          <h2>Something went wrong in this section.</h2>
-          <details style={{ whiteSpace: "pre-wrap" }}>
+        <div style={{ padding: "24px", color: "#e11d48", background: "#fff1f2", borderRadius: "12px", border: "1px solid #fecdd3" }}>
+          <h3 style={{ margin: "0 0 10px 0", display: "flex", alignItems: "center", gap: "8px" }}>
+            <AlertTriangle size={20} /> Section Load Error
+          </h3>
+          <p style={{ fontSize: "0.9rem", color: "#64748b" }}>An error occurred rendering this section. Please try refreshing.</p>
+          <details style={{ whiteSpace: "pre-wrap", fontSize: "0.8rem", color: "#e11d48", marginTop: "10px" }}>
             {this.state.error && this.state.error.toString()}
           </details>
         </div>
@@ -95,20 +114,22 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
-
-
 export default function App() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const [markets, setMarkets] = useState<StoredMarket[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState<"ALL" | "POLYMARKET" | "PRISM">("ALL");
+  const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
   const [currentRoute, setCurrentRoute] = useState(window.location.hash);
-  const [shares, setShares] = useState("1");
+  const [shares, setShares] = useState("10");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [position, setPosition] = useState<{ yes: number; no: number } | null>(null);
   const [tradeOutcome, setTradeOutcome] = useState<0 | 1>(0);
+  const [showTechDetails, setShowTechDetails] = useState(false);
+  
   const [onChainState, setOnChainState] = useState<{
     yesSupply: number;
     noSupply: number;
@@ -129,20 +150,8 @@ export default function App() {
 
   const loadMarkets = useCallback(async () => {
     try {
-      console.log("=== MARKET LOAD START ===");
       const response = await fetch(`/markets.json?t=${Date.now()}`, { cache: "no-store" });
-      console.log("MARKET RESPONSE:", response.status, response.url);
       const data = await response.json();
-      const safeDataList = Array.isArray(data) ? data : Object.values(data || {});
-      console.log("MARKET DATA COUNT:", safeDataList.length);
-      console.log(
-        "LIFECYCLE MARKET:",
-        safeDataList.find(
-          (m: any) =>
-            m.id === "lifecycle-test-001" ||
-            m.polymarketId === "lifecycle-test-001"
-        )
-      );
       if (!data) {
         setMarkets([]);
         return;
@@ -175,8 +184,11 @@ export default function App() {
         : data;
       const list = Object.values(dataObj).sort((a, b) => b.endTs - a.endTs);
       setMarkets(list);
-      if (list[0]) setSelected((prev) => prev || (list[0].source === "prism" && list[0].pubkey ? list[0].pubkey : list[0].polymarketId));
-    } catch {
+      if (list[0]) {
+        setSelected((prev) => prev || (list[0].source === "prism" && list[0].pubkey ? list[0].pubkey : list[0].polymarketId));
+      }
+    } catch (err) {
+      console.error("Failed to load markets", err);
       setMarkets([]);
     }
   }, []);
@@ -267,12 +279,12 @@ export default function App() {
 
   async function trade(side: "buy" | "sell", outcome: 0 | 1) {
     if (!program || !wallet.publicKey || !active) {
-      setMsg("Connect wallet and select a market");
+      setMsg("Connect your wallet to trade on PRISM.");
       return;
     }
     const shareAmount = Math.round(Number(shares) * 1_000_000);
     if (!Number.isFinite(shareAmount) || shareAmount <= 0) {
-      setMsg("Enter a valid share amount");
+      setMsg("Please enter a valid share amount.");
       return;
     }
 
@@ -285,40 +297,10 @@ export default function App() {
       const marketUsdcMint = onChainState?.usdcMint ? new PublicKey(onChainState.usdcMint) : USDC_MINT;
       const userUsdc = getAssociatedTokenAddressSync(marketUsdcMint, wallet.publicKey);
 
-      const rawCost = side === "buy" 
-        ? calculateLmsrCost(onChainState?.lmsrB || 1_000_000, onChainState?.yesSupply || 0, onChainState?.noSupply || 0, shareAmount, outcome, "buy")
-        : calculateLmsrCost(onChainState?.lmsrB || 1_000_000, onChainState?.yesSupply || 0, onChainState?.noSupply || 0, shareAmount, outcome, "sell");
-
-      console.log("BUY DEBUG", {
-        shareInput: shares,
-        shareAmountRaw: shareAmount,
-        displayedCost: rawCost / 1_000_000,
-        rawCost,
-        usdcMint: marketUsdcMint.toBase58(),
-      });
-
       const method =
         side === "buy"
           ? program.methods.buy(outcome, new BN(shareAmount))
           : program.methods.sell(outcome, new BN(shareAmount));
-
-      console.log("=== BUY DEBUG ===");
-      console.log({
-        wallet: wallet.publicKey?.toBase58(),
-        market: marketKey?.toBase58(),
-        usdcMint: marketUsdcMint.toBase58(),
-        userUsdc: userUsdc?.toBase58(),
-        amountRaw: rawCost,
-        amountHuman: rawCost / 1_000_000,
-      });
-
-      console.log("BUY ACCOUNTS", {
-        user: wallet.publicKey?.toBase58(),
-        userUsdc: userUsdc?.toBase58(),
-        vault: vaultKey?.toBase58(),
-        market: marketKey?.toBase58(),
-        tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
-      });
 
       let builder = method.accounts({
         user: wallet.publicKey,
@@ -330,12 +312,11 @@ export default function App() {
         systemProgram: SystemProgram.programId,
       });
 
-      // Check if user's USDC ATA exists; if not, prepend creation instruction
       let ataInfo = null;
       try {
         ataInfo = await connection.getAccountInfo(userUsdc);
       } catch {
-        // network fetch error, continue
+        // network check
       }
       if (!ataInfo) {
         const createAtaIx = createAssociatedTokenAccountInstruction(
@@ -347,18 +328,16 @@ export default function App() {
         builder = builder.preInstructions([createAtaIx]);
       }
 
-      await builder.rpc();
-
-      setMsg(`${side.toUpperCase()} ${outcome === 0 ? "YES" : "NO"} confirmed!`);
+      const tx = await builder.rpc();
+      setMsg(`${side.toUpperCase()} ${outcome === 0 ? "YES" : "NO"} confirmed! TX: ${tx.slice(0, 8)}...`);
       await refreshPosition();
       await refreshMarketData();
-      setRefreshCounter(prev => prev + 1);
+      setRefreshCounter((prev) => prev + 1);
     } catch (err: any) {
       console.error("Trade error:", err);
       let errorMsg = err?.message || String(err);
       if (err?.logs || (typeof err?.getLogs === "function")) {
         const logs = err?.logs || (err?.getLogs ? err.getLogs() : []);
-        console.error("Transaction simulation logs:", logs);
         if (logs && logs.length > 0) {
           errorMsg += ` (Logs: ${logs.join(" | ")})`;
         }
@@ -395,7 +374,7 @@ export default function App() {
       try {
         ataInfo = await connection.getAccountInfo(userUsdc);
       } catch {
-        // network fetch error, continue
+        // network check
       }
       if (!ataInfo) {
         const createAtaIx = createAssociatedTokenAccountInstruction(
@@ -409,16 +388,25 @@ export default function App() {
 
       const txSig = await builder.rpc();
 
+      try {
+        confetti({
+          particleCount: 120,
+          spread: 70,
+          origin: { y: 0.6 }
+        });
+      } catch {
+        // confetti fallback
+      }
+
       setMsg(`Redeemed winning shares for USDC!|${winningShares.toFixed(2)}|${txSig}`);
       await refreshPosition();
       await refreshMarketData();
-      setRefreshCounter(prev => prev + 1);
+      setRefreshCounter((prev) => prev + 1);
     } catch (err: any) {
       console.error("Redeem error:", err);
       let errorMsg = err?.message || String(err);
       if (err?.logs || (typeof err?.getLogs === "function")) {
         const logs = err?.logs || (err?.getLogs ? err.getLogs() : []);
-        console.error("Transaction simulation logs:", logs);
         if (logs && logs.length > 0) {
           errorMsg += ` (Logs: ${logs.join(" | ")})`;
         }
@@ -429,7 +417,7 @@ export default function App() {
     }
   }
 
-  // Odds and probabilities
+  // Odds and probabilities calculations
   let yesPctNum = active ? (active.yesPrice ? active.yesPrice * 100 : active.priceYesBps / 100) : 50;
   let noPctNum = active ? (active.noPrice ? active.noPrice * 100 : 100 - (active.priceYesBps / 100)) : 50;
 
@@ -439,8 +427,8 @@ export default function App() {
     noPctNum = prices.noPrice * 100;
   }
 
-  const yesPct = yesPctNum.toFixed(2);
-  const noPct = noPctNum.toFixed(2);
+  const yesPct = yesPctNum.toFixed(1);
+  const noPct = noPctNum.toFixed(1);
 
   const currentStatus = onChainState?.status || active?.status || "open";
 
@@ -453,484 +441,638 @@ export default function App() {
     ? calculateLmsrCost(onChainState.lmsrB, onChainState.yesSupply, onChainState.noSupply, shareNum, 1, "buy")
     : shareNum;
 
-  // Polymarket-style payout calculation
   const selectedCostRaw = tradeOutcome === 0 ? estimatedBuyYesCost : estimatedBuyNoCost;
   const selectedCost = selectedCostRaw / 1_000_000;
-  const expectedShares = (Number(shares) || 1);
+  const expectedShares = Number(shares) || 1;
   const toWin = expectedShares;
   const avgPrice = expectedShares > 0 ? selectedCost / expectedShares : 0;
   const potentialProfit = toWin - selectedCost;
-  
-  if (onChainState) {
-    console.log("[LMSR DEBUG]", {
-      yesSupply: onChainState.yesSupply,
-      noSupply: onChainState.noSupply,
-      lmsrB: onChainState.lmsrB,
-      amount: shareNum,
-      selectedOutcome: tradeOutcome,
-      calculatedCost: selectedCostRaw,
-      calculatedCostUsdc: selectedCost
-    });
-  }
+  const returnPercentage = selectedCost > 0 ? ((toWin - selectedCost) / selectedCost) * 100 : 0;
 
-  useEffect(() => {
-    if (active) {
-      console.log("=== CALCULATION LOG ===");
-      console.log("selected outcome", tradeOutcome === 0 ? "YES" : "NO");
-      console.log("requested shares", expectedShares);
-      console.log("calculated trade cost", selectedCost);
-      console.log("average price", avgPrice);
-      console.log("expected payout", toWin);
-      console.log("potential profit", potentialProfit);
-      console.log("current yes supply", onChainState?.yesSupply ?? 0);
-      console.log("current no supply", onChainState?.noSupply ?? 0);
-      console.log("LMSR b", onChainState?.lmsrB ?? 0);
-      const marketKey = active.pubkey ? new PublicKey(active.pubkey) : marketPda(active.polymarketId)[0];
-      console.log("market PDA", marketKey.toBase58());
-      if (wallet.publicKey) {
-        console.log("position PDA", positionPda(marketKey, wallet.publicKey)[0].toBase58());
-      }
-    }
-  }, [active, tradeOutcome, expectedShares, selectedCost, avgPrice, toWin, potentialProfit, onChainState, wallet.publicKey]);
+  const winningShares =
+    currentStatus === "resolved"
+      ? onChainState?.winningOutcome === 0
+        ? (position?.yes || 0) / 1_000_000
+        : onChainState?.winningOutcome === 1
+        ? (position?.no || 0) / 1_000_000
+        : 0
+      : 0;
 
-  // Post-trade price preview
-  let yesPriceAfterYesTrade = yesPctNum;
-  let noPriceAfterNoTrade = noPctNum;
-
-  if (onChainState && active?.source === "prism") {
-    const postYesTradePrices = calculateLmsrPrices(onChainState.lmsrB, onChainState.yesSupply + shareNum, onChainState.noSupply);
-    yesPriceAfterYesTrade = postYesTradePrices.yesPrice * 100;
-
-    const postNoTradePrices = calculateLmsrPrices(onChainState.lmsrB, onChainState.yesSupply, onChainState.noSupply + shareNum);
-    noPriceAfterNoTrade = postNoTradePrices.noPrice * 100;
-  }
-
-  const winningShares = currentStatus === "resolved"
-    ? onChainState?.winningOutcome === 0
-      ? (position?.yes || 0) / 1_000_000
-      : onChainState?.winningOutcome === 1
-      ? (position?.no || 0) / 1_000_000
-      : 0
-    : 0;
-
-  const losingShares = currentStatus === "resolved"
-    ? onChainState?.winningOutcome === 0
-      ? (position?.no || 0) / 1_000_000
-      : onChainState?.winningOutcome === 1
-      ? (position?.yes || 0) / 1_000_000
-      : 0
-    : 0;
+  const losingShares =
+    currentStatus === "resolved"
+      ? onChainState?.winningOutcome === 0
+        ? (position?.no || 0) / 1_000_000
+        : onChainState?.winningOutcome === 1
+        ? (position?.yes || 0) / 1_000_000
+        : 0
+      : 0;
 
   const userYesShares = (position?.yes || 0) / 1_000_000;
   const userNoShares = (position?.no || 0) / 1_000_000;
-  
-  const estimatedYesValue = userYesShares * yesPctNum / 100;
-  const estimatedNoValue = userNoShares * noPctNum / 100;
+
+  const estimatedYesValue = (userYesShares * yesPctNum) / 100;
+  const estimatedNoValue = (userNoShares * noPctNum) / 100;
 
   const isRedeemable = currentStatus === "resolved" && (onChainState?.aiResolutionConfidence ?? 100) >= 60 && winningShares > 0;
-  
+
   const handleRedeem = async () => {
-    if (!confirm(`You are redeeming:\n\n${winningShares.toFixed(2)} winning shares\n\nExpected payout:\n${winningShares.toFixed(2)} USDC\n\nProceed to sign?`)) {
+    if (
+      !confirm(
+        `REDEEM WINNING SHARES\n\nWinning Shares: ${winningShares.toFixed(2)}\nExpected Payout: $${winningShares.toFixed(
+          2
+        )} USDC\n\nProceed to submit transaction?`
+      )
+    ) {
       return;
     }
     await redeem();
   };
 
-  console.log(
-    "MARKETS BEFORE RENDER:",
-    markets
-  );
-  console.log(
-    "LIFECYCLE BEFORE RENDER:",
-    markets.find(
-      m =>
-        m.polymarketId === "lifecycle-test-001" || m.polymarketId === "prism:lifecycle-test-001"
-    )
-  );
-
+  // Filtering Markets
   const visibleMarkets = useMemo(() => {
-    return markets.filter(m => {
-      if (sourceFilter === "ALL") return true;
-      if (sourceFilter === "POLYMARKET") return m.source === "polymarket";
-      if (sourceFilter === "PRISM") return m.source === "prism";
+    return markets.filter((m) => {
+      if (sourceFilter === "POLYMARKET" && m.source !== "polymarket") return false;
+      if (sourceFilter === "PRISM" && m.source !== "prism") return false;
+
+      if (categoryFilter !== "ALL") {
+        const cat = categoryFilter.toLowerCase();
+        const hasTag = m.aiTags?.some((t) => t.toLowerCase().includes(cat));
+        const hasText = (m.question || "").toLowerCase().includes(cat) || (m.aiTitle || "").toLowerCase().includes(cat);
+        if (!hasTag && !hasText) return false;
+      }
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const inQuestion = (m.question || "").toLowerCase().includes(q);
+        const inTitle = (m.aiTitle || "").toLowerCase().includes(q);
+        const inTags = m.aiTags?.some((t) => t.toLowerCase().includes(q));
+        const inId = (m.polymarketId || "").toLowerCase().includes(q);
+        if (!inQuestion && !inTitle && !inTags && !inId) return false;
+      }
+
       return true;
     });
-  }, [markets, sourceFilter]);
+  }, [markets, sourceFilter, categoryFilter, searchQuery]);
+
+  const handleGetStarted = () => {
+    window.location.hash = "#/markets";
+  };
+
+  const handleNavigateAdmin = () => {
+    window.location.hash = "#/admin";
+  };
+
+  const isLandingView =
+    currentRoute === "" ||
+    currentRoute === "#" ||
+    currentRoute === "#/" ||
+    currentRoute.startsWith("#/landing");
 
   if (currentRoute.startsWith("#/admin")) {
     return (
-      <div className="page">
-        <header className="top">
-          <div className="brand">
-            <span className="mark">PRISM</span>
-            <span className="tag">Polymarket → Solana (LMSR + AI QA)</span>
-          </div>
-          <div>
-            <a href="#/" style={{marginRight: "20px", color: "#ccc"}}>← Back to Public App</a>
-            <WalletMultiButton />
+      <PRISMBackground>
+        <header className="top-nav">
+          <a href="#/landing" className="brand-container">
+            <div className="brand-logo-icon">
+              <TrendingUp size={22} color="#ffffff" />
+            </div>
+            <div className="brand-text-wrapper">
+              <span className="brand-mark">PRISM</span>
+              <span className="brand-subtitle">ADMIN CONTROLS</span>
+            </div>
+          </a>
+          <div className="nav-links">
+            <a href="#/landing" className="nav-item">
+              <Globe size={16} /> Home
+            </a>
+            <a href="#/markets" className="nav-item">
+              <TrendingUp size={16} /> Markets
+            </a>
+            <div className="wallet-wrapper">
+              <WalletMultiButton />
+            </div>
           </div>
         </header>
         <AdminPage />
-      </div>
+      </PRISMBackground>
     );
   }
 
   if (currentRoute.startsWith("#/transactions")) {
     return (
-      <div className="page">
-        <header className="top">
-          <div className="brand">
-            <span className="mark">PRISM</span>
-            <span className="tag">Polymarket → Solana (LMSR + AI QA)</span>
-          </div>
-          <div>
-            <a href="#/" style={{marginRight: "20px", color: "#ccc"}}>← Back to Public App</a>
-            <WalletMultiButton />
+      <PRISMBackground>
+        <header className="top-nav">
+          <a href="#/landing" className="brand-container">
+            <div className="brand-logo-icon">
+              <TrendingUp size={22} color="#ffffff" />
+            </div>
+            <div className="brand-text-wrapper">
+              <span className="brand-mark">PRISM</span>
+              <span className="brand-subtitle">TRANSACTION LOG</span>
+            </div>
+          </a>
+          <div className="nav-links">
+            <a href="#/landing" className="nav-item">
+              <Globe size={16} /> Home
+            </a>
+            <a href="#/markets" className="nav-item">
+              <TrendingUp size={16} /> Markets
+            </a>
+            <div className="wallet-wrapper">
+              <WalletMultiButton />
+            </div>
           </div>
         </header>
         <TransactionHistoryPage refreshTrigger={refreshCounter} />
-      </div>
+      </PRISMBackground>
+    );
+  }
+
+  if (isLandingView) {
+    return (
+      <PRISMBackground>
+        <LandingPage>
+          <LandingContent onGetStarted={handleGetStarted} marketCount={markets.length} />
+        </LandingPage>
+      </PRISMBackground>
     );
   }
 
   return (
-    <div className="page">
-      <header className="top">
-        <div className="brand">
-          <span className="mark">PRISM</span>
-          <span className="tag">Polymarket → Solana (LMSR + AI QA)</span>
-        </div>
-        <div>
-          <a href="#/transactions" style={{marginRight: "20px", color: "#ccc"}}>Transactions</a>
-          <a href="#/admin" style={{marginRight: "20px", color: "#ccc"}}>Admin Panel</a>
-          <WalletMultiButton />
-        </div>
-      </header>
-
-      <main className="layout">
-        <section className="rail">
-          <div className="rail-head">
-            <h2>Markets</h2>
-            <button type="button" className="ghost" onClick={loadMarkets}>
-              Refresh
-            </button>
-          </div>
-          
-          <div style={{ padding: "0 20px 10px", display: "flex", gap: "10px", fontSize: "0.8em" }}>
-            <button style={{ background: sourceFilter === "ALL" ? "#333" : "transparent", color: sourceFilter === "ALL" ? "#fff" : "#888", border: "1px solid #444", padding: "4px 8px", borderRadius: "4px" }} onClick={() => setSourceFilter("ALL")}>ALL</button>
-            <button style={{ background: sourceFilter === "POLYMARKET" ? "#333" : "transparent", color: sourceFilter === "POLYMARKET" ? "#fff" : "#888", border: "1px solid #444", padding: "4px 8px", borderRadius: "4px" }} onClick={() => setSourceFilter("POLYMARKET")}>POLYMARKET</button>
-            <button style={{ background: sourceFilter === "PRISM" ? "#333" : "transparent", color: sourceFilter === "PRISM" ? "#fff" : "#888", border: "1px solid #444", padding: "4px 8px", borderRadius: "4px" }} onClick={() => setSourceFilter("PRISM")}>PRISM</button>
-          </div>
-
-          {visibleMarkets.length === 0 ? (
-            <p className="empty">
-              No active markets loaded for this filter.
-            </p>
-          ) : (
-            <ul className="market-list">
-              {visibleMarkets.map((m) => {
-                const uniqueId = m.source === "prism" && m.pubkey ? m.pubkey : m.polymarketId;
-                return (
-                <li key={uniqueId}>
-                  <button
-                    type="button"
-                    className={uniqueId === selected ? "market active" : "market"}
-                    onClick={() => setSelected(uniqueId)}
-                  >
-                    <div style={{ fontSize: "0.7em", opacity: 0.6, marginBottom: "4px", textAlign: "left" }}>
-                      [ {m.source?.toUpperCase() || "POLYMARKET"} ]
-                    </div>
-                    <span className="q">{m.aiTitle || m.question}</span>
-                    <span className={`st ${m.status}`}>{m.status === "resolved" ? "RESOLVED" : m.status}</span>
-                  </button>
-                </li>
-              )})}
-            </ul>
-          )}
-        </section>
-
-        <section className="stage">
-          <ErrorBoundary>
-          {!active ? (
-            <div className="empty-stage" style={{ padding: "40px", textAlign: "center", color: "#888" }}>
-              <h2>Market not found</h2>
-              <p>Please select a market from the list.</p>
+    <PRISMBackground>
+      {/* Top Navigation Bar for PRISM Application */}
+      <header className="top-nav">
+          <a href="#/landing" className="brand-container">
+            <div className="brand-logo-icon">
+              <TrendingUp size={22} color="#ffffff" />
             </div>
-          ) : (
-            <>
-              <div className="eyebrow-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <p className="eyebrow">
-                  SOURCE: {active.source?.toUpperCase() || "POLYMARKET"} · Solana Anchor Contract · LMSR Pricing
-                </p>
-                {active.aiScore !== undefined && active.aiScore !== null && (
-                  <span className="ai-badge" title={active.aiReason || "AI Curation Score"}>
-                    🤖 AI Score: {active.aiScore}/100
-                  </span>
-                )}
-              </div>
-              
-              <div style={{ marginBottom: "20px", padding: "10px", background: "#111", borderRadius: "8px", fontSize: "0.85em", color: "#888", border: "1px solid #222" }}>
-                {active.source === "prism" ? (
-                  <>
-                    <p><strong>Market PDA:</strong> {active.pubkey}</p>
-                    <p><strong>Creator:</strong> PRISM Admin</p>
-                    <p><strong>Config PDA:</strong> {configPda()[0].toBase58()}</p>
-                    <p><strong>Vault:</strong> {active.pubkey ? vaultPda(new PublicKey(active.pubkey))[0].toBase58() : "..."}</p>
-                    <p><strong>Collateral Mint:</strong> {USDC_MINT.toBase58()}</p>
-                  </>
-                ) : (
-                  <>
-                    <p><strong>Polymarket ID:</strong> {active.polymarketId}</p>
-                    {active.raw?.slug && <p><strong>Slug:</strong> {active.raw.slug}</p>}
-                  </>
-                )}
-              </div>
+            <div className="brand-text-wrapper">
+              <span className="brand-mark">PRISM</span>
+              <span className="brand-subtitle">Prediction and Real-World Intelligence Settlement Market</span>
+            </div>
+          </a>
 
-              <h1>{active.aiTitle || active.question}</h1>
+          <div className="nav-links">
+            <a href="#/landing" className="nav-item active">
+              <Globe size={16} /> Home
+            </a>
+            <a href="#/markets" className="nav-item">
+              <TrendingUp size={16} /> Markets
+            </a>
+            <a href="#/transactions" className="nav-item">
+              <Activity size={16} /> History
+            </a>
+            <a href="#/admin" className="nav-item">
+              <ShieldCheck size={16} /> Admin Portal
+            </a>
+          </div>
 
-              {active.aiTags && active.aiTags.length > 0 && (
-                <div className="ai-tags">
-                  {active.aiTags.map((tag, idx) => (
-                    <span key={idx} className="ai-tag">#{tag}</span>
-                  ))}
-                </div>
-              )}
+          <div className="wallet-wrapper">
+            <WalletMultiButton />
+          </div>
+        </header>
 
-              {active.aiSummary && (
-                <div className="ai-summary-box">
-                  <h4>AI Market Summary</h4>
-                  <p>{active.aiSummary}</p>
-                </div>
-              )}
-
-              <p className="meta">
-                Ends {new Date(active.endTs * 1000).toLocaleString()} · Status:{" "}
-                <strong style={{ textTransform: "uppercase" }}>{currentStatus}</strong>
-              </p>
-
-              {/* LMSR Probability Bar */}
-              <div className="prob-container">
-                <div className="prob-labels">
-                  <span className="prob-yes">{currentStatus === "resolved" ? "FINAL OUTCOME" : "CURRENT PRICE"} YES {yesPct}%</span>
-                  <span className="prob-no">{currentStatus === "resolved" ? "FINAL OUTCOME" : "CURRENT PRICE"} NO {noPct}%</span>
-                </div>
-                <div className="prob-bar">
-                  <div className="prob-fill-yes" style={{ width: `${yesPctNum}%` }} />
-                </div>
+        {/* Existing PRISM Dashboard Workspace */}
+        <main className="main-container existing-dashboard animate-fade-in">
+          <div className="layout-grid">
+            {/* Sidebar Rail */}
+            <aside className="sidebar-rail">
+              <div className="sidebar-header">
+                <h2 className="sidebar-title">
+                  <Layers size={18} color="var(--accent-cyan)" /> Markets ({visibleMarkets.length})
+                </h2>
+                <button type="button" className="refresh-btn" onClick={loadMarkets} title="Refresh Markets">
+                  <RefreshCw size={14} /> Refresh
+                </button>
               </div>
 
-              {/* Cost estimates removed from global view, they will be inside the trade panel */}
+              {/* Search Box */}
+              <div className="search-box">
+                <Search className="search-icon" size={16} />
+                <input
+                  type="text"
+                  className="search-input"
+                  placeholder="Search markets or topics..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
 
-              {/* Resolution QA Confidence Card - Removed in favor of settlement panel */}
+              {/* Source Filter Pills */}
+              <div className="filter-pills">
+                <button
+                  type="button"
+                  className={`filter-pill ${sourceFilter === "ALL" ? "active" : ""}`}
+                  onClick={() => setSourceFilter("ALL")}
+                >
+                  ALL
+                </button>
+                <button
+                  type="button"
+                  className={`filter-pill ${sourceFilter === "POLYMARKET" ? "active" : ""}`}
+                  onClick={() => setSourceFilter("POLYMARKET")}
+                >
+                  POLYMARKET
+                </button>
+                <button
+                  type="button"
+                  className={`filter-pill ${sourceFilter === "PRISM" ? "active" : ""}`}
+                  onClick={() => setSourceFilter("PRISM")}
+                >
+                  PRISM NATIVE
+                </button>
+              </div>
 
-              {/* Trade Panel */}
-              {currentStatus === "open" && (
-                <div className="trade-card" style={{ background: "#1a1a2e", padding: "20px", borderRadius: "12px", border: "1px solid #333", marginTop: "20px" }}>
-                  <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
-                    <button 
-                      type="button" 
-                      style={{ flex: 1, padding: "12px", background: tradeOutcome === 0 ? "var(--yes)" : "transparent", color: tradeOutcome === 0 ? "#000" : "var(--yes)", border: "1px solid var(--yes)", borderRadius: "8px", fontWeight: "bold" }}
-                      onClick={() => setTradeOutcome(0)}
-                    >
-                      YES {yesPct}%
-                    </button>
-                    <button 
-                      type="button" 
-                      style={{ flex: 1, padding: "12px", background: tradeOutcome === 1 ? "var(--no)" : "transparent", color: tradeOutcome === 1 ? "#000" : "var(--no)", border: "1px solid var(--no)", borderRadius: "8px", fontWeight: "bold" }}
-                      onClick={() => setTradeOutcome(1)}
-                    >
-                      NO {noPct}%
-                    </button>
-                  </div>
-                  
-                  <div style={{ marginBottom: "20px" }}>
-                    <label style={{ display: "block", color: "#888", marginBottom: "8px" }}>Amount</label>
-                    <input
-                      style={{ width: "100%", padding: "12px", background: "#111", border: "1px solid #333", borderRadius: "8px", color: "#fff", fontSize: "1.1em", boxSizing: "border-box" }}
-                      value={shares}
-                      onChange={(e) => setShares(e.target.value)}
-                      inputMode="decimal"
-                      placeholder="1"
-                    />
-                  </div>
-
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px", fontSize: "0.95em" }}>
-                    <span style={{ color: "#888" }}>Amount / Cost</span>
-                    <strong>${selectedCost.toFixed(2)} USDC</strong>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px", fontSize: "0.95em" }}>
-                    <span style={{ color: "#888" }}>To win</span>
-                    <strong style={{ color: "var(--yes)" }}>${toWin.toFixed(2)} USDC</strong>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px", fontSize: "0.95em" }}>
-                    <span style={{ color: "#888" }}>Avg. Price</span>
-                    <strong>${avgPrice.toFixed(2)}</strong>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px", fontSize: "0.95em" }}>
-                    <span style={{ color: "#888" }}>Potential Profit</span>
-                    <strong style={{ color: "var(--yes)" }}>+${potentialProfit.toFixed(2)} USDC</strong>
-                  </div>
-
+              {/* Category Filter Pills */}
+              <div className="filter-pills" style={{ overflowX: "auto" }}>
+                {["ALL", "CRYPTO", "POLITICS", "TECH", "SCIENCE"].map((cat) => (
                   <button
+                    key={cat}
                     type="button"
-                    style={{ width: "100%", padding: "15px", background: tradeOutcome === 0 ? "var(--yes)" : "var(--no)", color: "#000", border: "none", borderRadius: "8px", fontWeight: "bold", fontSize: "1.1em", cursor: busy ? "not-allowed" : "pointer" }}
-                    disabled={busy}
-                    onClick={() => trade("buy", tradeOutcome)}
+                    className={`filter-pill ${categoryFilter === cat ? "active" : ""}`}
+                    onClick={() => setCategoryFilter(cat)}
+                    style={{ fontSize: "0.7rem", padding: "0.25rem 0.4rem" }}
                   >
-                    BUY {tradeOutcome === 0 ? "YES" : "NO"}
+                    {cat}
                   </button>
-                  
-                  {/* Keep Sell buttons as secondary actions so we don't break functionality */}
-                  <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
-                    <button
-                      type="button"
-                      className="ghost"
-                      style={{ flex: 1, padding: "8px", fontSize: "0.9em", background: "#222", border: "1px solid #444", borderRadius: "4px", color: "#aaa" }}
-                      disabled={busy}
-                      onClick={() => trade("sell", 0)}
-                    >
-                      Sell YES
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost"
-                      style={{ flex: 1, padding: "8px", fontSize: "0.9em", background: "#222", border: "1px solid #444", borderRadius: "4px", color: "#aaa" }}
-                      disabled={busy}
-                      onClick={() => trade("sell", 1)}
-                    >
-                      Sell NO
-                    </button>
-                  </div>
+                ))}
+              </div>
+
+              {/* Markets List */}
+              {visibleMarkets.length === 0 ? (
+                <div style={{ padding: "24px 12px", textAlign: "center", color: "var(--ink-muted)", fontSize: "0.88rem" }}>
+                  No markets match your active filters.
                 </div>
-              )}
+              ) : (
+                <ul className="market-list-scroll">
+                  {visibleMarkets.map((m) => {
+                    const uniqueId = m.source === "prism" && m.pubkey ? m.pubkey : m.polymarketId;
+                    const isSelected = uniqueId === selected;
+                    const itemYesPct = (m.yesPrice ? m.yesPrice * 100 : m.priceYesBps / 100).toFixed(0);
+                    const itemNoPct = (m.noPrice ? m.noPrice * 100 : 100 - m.priceYesBps / 100).toFixed(0);
 
-              {currentStatus === "frozen" && (
-                <div className="trade" style={{ textAlign: "center", padding: "20px", color: "#f59e0b", border: "1px solid #f59e0b" }}>
-                  <h3 style={{ margin: 0 }}>TRADING CLOSED</h3>
-                  <p style={{ margin: "10px 0 0", fontSize: "0.9em" }}>Market is frozen pending resolution.</p>
-                </div>
-              )}
-
-              {currentStatus === "resolved" && (
-                <div className="trade" style={{ border: "1px solid var(--border)", background: "var(--panel)" }}>
-                  <h3 style={{ margin: "0 0 15px", borderBottom: "1px solid var(--border)", paddingBottom: "10px" }}>
-                    FINAL OUTCOME
-                  </h3>
-                  
-                  <div style={{ marginBottom: "20px" }}>
-                    <div style={{ fontSize: "1.2em", fontWeight: "bold", color: onChainState?.winningOutcome === 0 ? "var(--yes)" : "var(--no)" }}>
-                      {onChainState?.winningOutcome === 0 ? "✓ YES WON" : onChainState?.winningOutcome === 1 ? "✓ NO WON" : "UNKNOWN"}
-                    </div>
-                  </div>
-
-                  <div style={{ marginBottom: "20px" }}>
-                    <div style={{ fontSize: "0.8em", color: "#888", marginBottom: "5px" }}>Your Position</div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span>YES Shares:</span>
-                      <span>{userYesShares.toFixed(2)}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span>NO Shares:</span>
-                      <span>{userNoShares.toFixed(2)}</span>
-                    </div>
-                  </div>
-
-                  {msg && msg.startsWith("Redeemed winning shares") ? (
-                    <div style={{ marginBottom: "20px", background: "rgba(16, 185, 129, 0.1)", padding: "15px", borderRadius: "8px", border: "1px solid var(--yes)" }}>
-                      <div style={{ color: "var(--yes)", fontWeight: "bold", fontSize: "1.2em", textAlign: "center", marginBottom: "15px" }}>
-                        REDEEMED ✓
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
-                        <span>USDC RECEIVED</span>
-                        <strong>${msg.split("|")[1] || "0.00"}</strong>
-                      </div>
-                      <div style={{ marginTop: "15px", fontSize: "0.8em", wordBreak: "break-all", color: "#888" }}>
-                        Transaction: <br/> {msg.split("|")[2] || msg}
-                      </div>
-                    </div>
-                  ) : winningShares > 0 ? (
-                    <div style={{ marginBottom: "20px", background: "rgba(16, 185, 129, 0.1)", padding: "10px", borderRadius: "8px", border: "1px solid var(--yes)" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
-                        <span>Winning Shares</span>
-                        <strong>{winningShares.toFixed(2)}</strong>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
-                        <span>Payout / Share</span>
-                        <span>$1.00 USDC</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px dashed var(--yes)", paddingTop: "5px", marginTop: "5px" }}>
-                        <strong>YOU WIN</strong>
-                        <strong style={{ color: "var(--yes)" }}>${winningShares.toFixed(2)} USDC</strong>
-                      </div>
-                      
-                      <div style={{ marginTop: "15px" }}>
+                    return (
+                      <li key={uniqueId}>
                         <button
                           type="button"
-                          className="yes"
-                          style={{ width: "100%", padding: "12px", fontSize: "1.1em" }}
-                          disabled={busy || !isRedeemable}
-                          onClick={handleRedeem}
+                          className={`market-item-card ${isSelected ? "active" : ""}`}
+                          onClick={() => setSelected(uniqueId)}
                         >
-                          [ REDEEM ]
+                          <div className="market-item-meta">
+                            <span className={`source-badge ${m.source === "prism" ? "prism" : ""}`}>
+                              {m.source?.toUpperCase() || "POLYMARKET"}
+                            </span>
+                            <span className={`status-tag ${m.status}`}>{m.status}</span>
+                          </div>
+
+                          <div className="market-item-question">{m.aiTitle || m.question}</div>
+
+                          <div className="market-item-odds">
+                            <span className="mini-yes">YES {itemYesPct}%</span>
+                            <span style={{ color: "var(--ink-muted)" }}>•</span>
+                            <span className="mini-no">NO {itemNoPct}%</span>
+                          </div>
                         </button>
-                        {!isRedeemable && (onChainState?.aiResolutionConfidence ?? 100) < 60 && (
-                          <div style={{ fontSize: "0.8em", color: "var(--no)", marginTop: "8px", textAlign: "center" }}>
-                            Redemption locked: AI confidence below 60%.
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </aside>
+
+            {/* Main Stage */}
+            <section className="stage-card">
+              <ErrorBoundary>
+                {!active ? (
+                  <div style={{ padding: "60px 20px", textAlign: "center", color: "var(--ink-muted)" }}>
+                    <TrendingUp size={48} style={{ opacity: 0.3, marginBottom: "12px" }} />
+                    <h2>Select a Market</h2>
+                    <p>Choose any prediction market from the left sidebar to view live LMSR prices & trade.</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Top Metadata Header */}
+                    <div className="stage-eyebrow-row">
+                      <div className="stage-eyebrow">
+                        <Sparkles size={16} /> {active.source?.toUpperCase() || "POLYMARKET"} · SOLANA LMSR AMM
+                      </div>
+
+                      {active.aiScore !== undefined && active.aiScore !== null && (
+                        <div className="ai-score-badge" title={active.aiReason || "AI Curation Score"}>
+                          <Sparkles size={14} /> AI Score: {active.aiScore}/100
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Market Title */}
+                    <h1 className="stage-title">{active.aiTitle || active.question}</h1>
+
+                    {/* AI Tags */}
+                    {active.aiTags && active.aiTags.length > 0 && (
+                      <div className="tags-row">
+                        {active.aiTags.map((tag, idx) => (
+                          <span key={idx} className="tag-chip">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* AI Summary Box */}
+                    {active.aiSummary && (
+                      <div className="ai-summary-card">
+                        <h4>
+                          <Sparkles size={14} /> AI Market Overview
+                        </h4>
+                        <p>{active.aiSummary}</p>
+                      </div>
+                    )}
+
+                    {/* Expiration & Status Info */}
+                    <div style={{ fontSize: "0.85rem", color: "var(--ink-secondary)", display: "flex", gap: "1rem" }}>
+                      <span>Ends: <strong>{new Date(active.endTs * 1000).toLocaleString()}</strong></span>
+                      <span>Status: <strong style={{ textTransform: "uppercase", color: currentStatus === "open" ? "var(--yes-color)" : currentStatus === "frozen" ? "var(--amber-color)" : "var(--no-color)" }}>{currentStatus}</strong></span>
+                    </div>
+
+                    {/* Big Odds Gauge Card */}
+                    <div className="odds-gauge-card">
+                      <div className="odds-labels-row">
+                        <span className="odds-yes-value">YES {yesPct}%</span>
+                        <span className="odds-no-value">NO {noPct}%</span>
+                      </div>
+
+                      <div className="gauge-track">
+                        <div className="gauge-fill-yes" style={{ width: `${yesPctNum}%` }} />
+                      </div>
+                    </div>
+
+                    {/* Technical Details Toggle */}
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setShowTechDetails(!showTechDetails)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "var(--ink-muted)",
+                          fontSize: "0.8rem",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.4rem",
+                          padding: 0
+                        }}
+                      >
+                        <Info size={14} /> {showTechDetails ? "Hide On-Chain Technical Details" : "Show On-Chain Technical Details"}
+                      </button>
+
+                      {showTechDetails && (
+                        <div className="tech-details-box" style={{ marginTop: "0.75rem" }}>
+                          <div>
+                            <strong>Market PDA:</strong> <code>{active.pubkey || marketPda(active.polymarketId)[0].toBase58()}</code>
+                          </div>
+                          <div>
+                            <strong>Vault PDA:</strong> <code>{active.pubkey ? vaultPda(new PublicKey(active.pubkey))[0].toBase58() : vaultPda(marketPda(active.polymarketId)[0])[0].toBase58()}</code>
+                          </div>
+                          <div>
+                            <strong>Config PDA:</strong> <code>{configPda()[0].toBase58()}</code>
+                          </div>
+                          <div>
+                            <strong>USDC Mint:</strong> <code>{USDC_MINT.toBase58()}</code>
+                          </div>
+                          <div>
+                            <strong>LMSR b parameter:</strong> <code>{onChainState?.lmsrB || active.lmsr_b || 1000000}</code>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Trade Widget Box */}
+                    {currentStatus === "open" && (
+                      <div className="trade-card-box">
+                        <div className="trade-outcome-toggle">
+                          <button
+                            type="button"
+                            className={`outcome-btn yes-btn ${tradeOutcome === 0 ? "active" : ""}`}
+                            onClick={() => setTradeOutcome(0)}
+                          >
+                            <CheckCircle2 size={18} /> YES {yesPct}%
+                          </button>
+                          <button
+                            type="button"
+                            className={`outcome-btn no-btn ${tradeOutcome === 1 ? "active" : ""}`}
+                            onClick={() => setTradeOutcome(1)}
+                          >
+                            <AlertTriangle size={18} /> NO {noPct}%
+                          </button>
+                        </div>
+
+                        <div className="amount-input-group">
+                          <div className="amount-label-row">
+                            <span>Share Amount</span>
+                            <span>LMSR Collateralized</span>
+                          </div>
+
+                          <div className="input-with-presets">
+                            <input
+                              type="text"
+                              className="amount-input"
+                              value={shares}
+                              onChange={(e) => setShares(e.target.value)}
+                              inputMode="decimal"
+                              placeholder="10"
+                            />
+
+                            <div className="preset-pills">
+                              {["5", "10", "50", "100", "500"].map((val) => (
+                                <button
+                                  key={val}
+                                  type="button"
+                                  className="preset-pill"
+                                  onClick={() => setShares(val)}
+                                >
+                                  {val}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Trade Summary Info */}
+                        <div className="trade-summary-rows">
+                          <div className="summary-row">
+                            <span>Total Cost (USDC):</span>
+                            <strong>${selectedCost.toFixed(2)} USDC</strong>
+                          </div>
+                          <div className="summary-row">
+                            <span>Avg. Share Price:</span>
+                            <strong>${avgPrice.toFixed(2)}</strong>
+                          </div>
+                          <div className="summary-row">
+                            <span>Payout on Win ($1/share):</span>
+                            <strong>${toWin.toFixed(2)} USDC</strong>
+                          </div>
+                          <div className="summary-row highlight">
+                            <span>Potential Profit:</span>
+                            <strong>+${potentialProfit.toFixed(2)} USDC ({returnPercentage.toFixed(1)}%)</strong>
+                          </div>
+                        </div>
+
+                        {/* Submit Trade Button */}
+                        <button
+                          type="button"
+                          className={`submit-trade-btn ${tradeOutcome === 0 ? "buy-yes" : "buy-no"}`}
+                          disabled={busy}
+                          onClick={() => trade("buy", tradeOutcome)}
+                        >
+                          {busy ? (
+                            <RefreshCw className="animate-spin" size={20} />
+                          ) : (
+                            <>
+                              <Coins size={20} /> BUY {tradeOutcome === 0 ? "YES" : "NO"} SHARES
+                            </>
+                          )}
+                        </button>
+
+                        {/* Secondary Sell Actions */}
+                        <div className="secondary-sell-btns">
+                          <button
+                            type="button"
+                            className="sell-btn"
+                            disabled={busy}
+                            onClick={() => trade("sell", 0)}
+                          >
+                            Sell YES Position
+                          </button>
+                          <button
+                            type="button"
+                            className="sell-btn"
+                            disabled={busy}
+                            onClick={() => trade("sell", 1)}
+                          >
+                            Sell NO Position
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Frozen Banner */}
+                    {currentStatus === "frozen" && (
+                      <div style={{ padding: "20px", background: "var(--amber-bg)", border: "1px solid var(--amber-border)", borderRadius: "12px", textAlign: "center" }}>
+                        <Lock size={28} color="var(--amber-color)" style={{ marginBottom: "8px" }} />
+                        <h3 style={{ margin: "0 0 6px", color: "var(--amber-color)" }}>MARKET TRADING HALTED</h3>
+                        <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--ink-secondary)" }}>
+                          This market reached its end date and is currently frozen awaiting oracle resolution.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Resolved Banner & Payout Redemption */}
+                    {currentStatus === "resolved" && (
+                      <div className="trade-card-box">
+                        <h3 style={{ margin: 0, fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "8px" }}>
+                          <Award size={20} color="var(--accent-cyan)" /> MARKET RESOLVED
+                        </h3>
+
+                        <div style={{ fontSize: "1.25rem", fontWeight: 700, color: onChainState?.winningOutcome === 0 ? "var(--yes-color)" : "var(--no-color)" }}>
+                          {onChainState?.winningOutcome === 0 ? "✓ YES OUTCOME WON" : onChainState?.winningOutcome === 1 ? "✓ NO OUTCOME WON" : "RESOLVED"}
+                        </div>
+
+                        {msg && msg.startsWith("Redeemed winning shares") ? (
+                          <div className="redeem-banner">
+                            <CheckCircle2 size={32} color="var(--yes-color)" style={{ margin: "0 auto" }} />
+                            <h4 style={{ margin: 0, color: "var(--yes-color)" }}>REDEEMED SUCCESSFULLY!</h4>
+                            <div style={{ fontSize: "1.2rem", fontWeight: 700 }}>
+                              +${msg.split("|")[1] || "0.00"} USDC
+                            </div>
+                            <div style={{ fontSize: "0.78rem", color: "var(--ink-muted)", wordBreak: "break-all" }}>
+                              TX Signature: {msg.split("|")[2] || msg}
+                            </div>
+                          </div>
+                        ) : winningShares > 0 ? (
+                          <div className="redeem-banner">
+                            <Award size={32} color="var(--yes-color)" style={{ margin: "0 auto" }} />
+                            <h4 style={{ margin: 0, color: "var(--yes-color)" }}>YOU HAVE WINNING SHARES!</h4>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.95rem" }}>
+                              <span>Winning Shares:</span>
+                              <strong>{winningShares.toFixed(2)}</strong>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "1.1rem", fontWeight: 700, borderTop: "1px dashed var(--yes-color)", paddingTop: "8px" }}>
+                              <span>Total Payout:</span>
+                              <span style={{ color: "var(--yes-color)" }}>${winningShares.toFixed(2)} USDC</span>
+                            </div>
+
+                            <button
+                              type="button"
+                              className="redeem-btn"
+                              disabled={busy || !isRedeemable}
+                              onClick={handleRedeem}
+                            >
+                              {busy ? "Redeeming..." : "REDEEM WINNINGS TO WALLET"}
+                            </button>
+
+                            {!isRedeemable && (onChainState?.aiResolutionConfidence ?? 100) < 60 && (
+                              <div style={{ fontSize: "0.8rem", color: "var(--no-color)", marginTop: "6px" }}>
+                                Redemption locked: AI oracle confidence score below threshold (60%).
+                              </div>
+                            )}
+                          </div>
+                        ) : losingShares > 0 ? (
+                          <div style={{ padding: "16px", background: "var(--no-bg)", border: "1px solid var(--no-border)", borderRadius: "12px", textAlign: "center" }}>
+                            <AlertTriangle size={24} color="var(--no-color)" style={{ marginBottom: "6px" }} />
+                            <div style={{ color: "var(--no-color)", fontWeight: 700 }}>POSITION DID NOT WIN</div>
+                            <div style={{ fontSize: "0.85rem", color: "var(--ink-secondary)", marginTop: "4px" }}>
+                              Your shares burned upon market settlement.
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: "0.88rem", color: "var(--ink-muted)", fontStyle: "italic", textAlign: "center" }}>
+                            No active shares remaining to redeem for this market.
                           </div>
                         )}
                       </div>
-                    </div>
-                  ) : losingShares > 0 ? (
-                    <div style={{ marginBottom: "20px", background: "rgba(239, 68, 68, 0.1)", padding: "10px", borderRadius: "8px", border: "1px solid var(--no)" }}>
-                      <div style={{ color: "var(--no)", fontWeight: "bold", marginBottom: "10px" }}>
-                        ✕ YOUR POSITION DID NOT WIN
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
-                        <span>Winning Shares</span>
-                        <strong>0.00</strong>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between" }}>
-                        <span>Payout</span>
-                        <strong>$0.00 USDC</strong>
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: "0.9em", color: "#888", textAlign: "center", fontStyle: "italic" }}>
-                      Already Redeemed or No Position
-                    </div>
-                  )}
-                </div>
-              )}
+                    )}
 
-              {position && currentStatus !== "resolved" && (
-                <div className="pos" style={{ background: "#1a1a2e", padding: "15px", borderRadius: "8px", border: "1px solid #333", marginTop: "20px" }}>
-                  <h4 style={{ margin: "0 0 10px", color: "#ccc" }}>Your Position</h4>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
-                    <span>YES shares:</span>
-                    <strong>{userYesShares.toFixed(2)}</strong>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "15px" }}>
-                    <span>NO shares:</span>
-                    <strong>{userNoShares.toFixed(2)}</strong>
-                  </div>
-                  <div style={{ borderTop: "1px solid #333", paddingTop: "10px", display: "flex", justifyContent: "space-between", color: "#888" }}>
-                    <span>Estimated Current Value:</span>
-                    <strong style={{ color: "#fff" }}>${(estimatedYesValue + estimatedNoValue).toFixed(2)} USDC</strong>
-                  </div>
-                </div>
-              )}
-              {msg && currentStatus !== "resolved" && !msg.startsWith("Redeemed") && <p className="msg">{msg}</p>}
+                    {/* Live Position Summary Card */}
+                    {position && currentStatus !== "resolved" && (
+                      <div className="position-card">
+                        <h4 className="position-title">
+                          <Coins size={16} color="var(--accent-cyan)" /> Your On-Chain Position
+                        </h4>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.88rem" }}>
+                          <span>YES Shares:</span>
+                          <strong>{userYesShares.toFixed(2)}</strong>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.88rem" }}>
+                          <span>NO Shares:</span>
+                          <strong>{userNoShares.toFixed(2)}</strong>
+                        </div>
+                        <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: "8px", display: "flex", justifyContent: "space-between", fontSize: "0.88rem" }}>
+                          <span>Estimated Value:</span>
+                          <strong style={{ color: "var(--accent-cyan)" }}>${(estimatedYesValue + estimatedNoValue).toFixed(2)} USDC</strong>
+                        </div>
+                      </div>
+                    )}
 
-              <MarketActivity 
-                market={active} 
-                marketPda={active.pubkey || marketPda(active.polymarketId)[0].toBase58()} 
-                refreshTrigger={refreshCounter} 
-              />
-            </>
-          )}
-          </ErrorBoundary>
-        </section>
-      </main>
-    </div>
-  );
-}
+                    {/* System Notification Banner */}
+                    {msg && currentStatus !== "resolved" && !msg.startsWith("Redeemed") && (
+                      <div className="status-msg-banner">
+                        {msg}
+                      </div>
+                    )}
+
+                    {/* Recent Activity Feed */}
+                    <MarketActivity
+                      market={active}
+                      marketPda={active.pubkey || marketPda(active.polymarketId)[0].toBase58()}
+                      refreshTrigger={refreshCounter}
+                    />
+                  </>
+                )}
+              </ErrorBoundary>
+            </section>
+          </div>
+        </main>
+      </PRISMBackground>
+    );
+  }
