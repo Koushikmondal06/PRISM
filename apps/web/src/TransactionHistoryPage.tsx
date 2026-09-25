@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { fetchWalletTransactions, WalletTransaction } from "./lib/transactions";
+import { Activity, ExternalLink, RefreshCw, CheckCircle2, AlertTriangle, ArrowUpRight, ArrowDownRight } from "lucide-react";
 
 export default function TransactionHistoryPage({ refreshTrigger }: { refreshTrigger?: number }) {
   const { connection } = useConnection();
@@ -22,14 +23,13 @@ export default function TransactionHistoryPage({ refreshTrigger }: { refreshTrig
         
         setTransactions((prev) => {
           if (reset) return result.transactions;
-          // Deduplicate by signature
           const existing = new Set(prev.map(t => t.signature));
           const newTxs = result.transactions.filter(t => !existing.has(t.signature));
           return [...prev, ...newTxs];
         });
         
         setLastSignature(result.lastSignature);
-        setHasMore(result.transactions.length >= 20); // rough heuristic
+        setHasMore(result.transactions.length >= 20);
       } catch (err) {
         console.error("Failed to fetch transactions", err);
       } finally {
@@ -59,116 +59,111 @@ export default function TransactionHistoryPage({ refreshTrigger }: { refreshTrig
   }, [transactions, filter]);
 
   if (!publicKey) {
-    return <div style={{ padding: "20px" }}>Connect wallet to view transaction history.</div>;
+    return (
+      <div style={{ maxWidth: "800px", margin: "60px auto", padding: "40px", textAlignment: "center", background: "var(--bg-card)", border: "1px solid var(--border-subtle)", borderRadius: "16px" } as any}>
+        <Activity size={40} color="var(--accent-cyan)" style={{ marginBottom: "16px" }} />
+        <h2>Connect Wallet</h2>
+        <p style={{ color: "var(--ink-secondary)" }}>Connect your Solana wallet to view on-chain trading and transaction history.</p>
+      </div>
+    );
   }
 
   return (
-    <div style={{ padding: "20px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-        <h2 style={{ margin: 0 }}>Transaction History</h2>
-        <button onClick={() => fetchTxs(true)} className="ghost" style={{ cursor: "pointer", fontSize: "0.9em" }}>
-          ↻ Refresh
+    <div style={{ maxWidth: "1000px", margin: "0 auto", padding: "30px 20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <Activity size={28} color="var(--accent-cyan)" />
+          <h2 style={{ margin: 0, fontFamily: "var(--font-heading)", fontSize: "1.8rem" }}>TRANSACTION HISTORY</h2>
+        </div>
+        <button onClick={() => fetchTxs(true)} className="refresh-btn" style={{ fontSize: "0.85rem", padding: "0.5rem 0.85rem" }}>
+          <RefreshCw size={14} /> Refresh
         </button>
       </div>
 
-      <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
+      <div className="filter-pills" style={{ maxWidth: "400px", marginBottom: "24px" }}>
         {(["ALL", "PRISM", "TRANSFERS", "OTHER"] as const).map(f => (
           <button 
             key={f}
+            type="button"
             onClick={() => setFilter(f)}
-            style={{ 
-              background: filter === f ? "#333" : "transparent",
-              color: filter === f ? "#fff" : "#888",
-              border: "1px solid #444",
-              padding: "4px 8px",
-              borderRadius: "4px",
-              cursor: "pointer"
-            }}
+            className={`filter-pill ${filter === f ? "active" : ""}`}
           >
             {f}
           </button>
         ))}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
         {displayedTxs.map((tx) => (
-          <div key={tx.signature} style={{ borderBottom: "1px solid #333", paddingBottom: "15px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <strong>
-                {tx.type === "BUY" ? `BUY ${tx.outcome}` :
-                 tx.type === "SELL" ? `SELL ${tx.outcome}` :
-                 tx.type === "RESOLVE" ? "MARKET RESOLVED" :
-                 tx.type === "FREEZE" ? "MARKET FROZEN" :
-                 tx.type === "CREATE_MARKET" ? "CREATE MARKET" :
-                 tx.type === "REDEEM" ? "REDEEM" :
-                 tx.type === "TRANSFER" ? "TRANSFER" : "OTHER"}
-              </strong>
-              <span style={{ color: tx.status === "success" ? "#4caf50" : "#f44336", fontWeight: "bold" }}>
+          <div key={tx.signature} style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)", borderRadius: "12px", padding: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: "bold", fontSize: "1rem" }}>
+                {tx.type === "BUY" ? <ArrowUpRight color="var(--yes-color)" size={20} /> : tx.type === "SELL" ? <ArrowDownRight color="var(--no-color)" size={20} /> : <Activity size={18} color="var(--accent-cyan)" />}
+                <span>
+                  {tx.type === "BUY" ? `BUY ${tx.outcome}` :
+                   tx.type === "SELL" ? `SELL ${tx.outcome}` :
+                   tx.type === "RESOLVE" ? "MARKET RESOLVED" :
+                   tx.type === "FREEZE" ? "MARKET FROZEN" :
+                   tx.type === "CREATE_MARKET" ? "CREATE MARKET" :
+                   tx.type === "REDEEM" ? "REDEEM WINNINGS" :
+                   tx.type === "TRANSFER" ? "TRANSFER" : "OTHER TRANSACTION"}
+                </span>
+              </div>
+              <span style={{ color: tx.status === "success" ? "var(--yes-color)" : "var(--no-color)", fontWeight: "bold", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: "4px" }}>
+                {tx.status === "success" ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
                 {tx.status === "success" ? "SUCCESS" : "FAILED"}
               </span>
             </div>
 
             {tx.status === "failed" && tx.error && (
-              <div style={{ color: "#f44336", fontSize: "0.85em", marginTop: "4px" }}>
+              <div style={{ color: "var(--no-color)", fontSize: "0.82rem", marginBottom: "8px" }}>
                 {tx.error}
               </div>
             )}
 
-            <div style={{ fontSize: "0.9em", color: "#ccc", marginTop: "8px" }}>
+            <div style={{ fontSize: "0.85rem", color: "var(--ink-secondary)", display: "flex", flexDirection: "column", gap: "4px" }}>
               {tx.marketPda || tx.polymarketId ? (
-                <div>Market: {tx.polymarketId || tx.marketPda}</div>
+                <div>Market: <code>{tx.polymarketId || tx.marketPda}</code></div>
               ) : null}
-              {tx.program !== "Unknown" && tx.program !== "6cD9BZG2bddZZ1xoNReLVEvdYVaxpxY97F7MfZyov7XW" && (
-                <div>Program: {tx.program}</div>
-              )}
               {tx.shares !== undefined && (
-                <div>Shares: {tx.shares.toFixed(2)}</div>
+                <div>Shares: <strong>{tx.shares.toFixed(2)}</strong></div>
               )}
               {tx.usdcAmount !== undefined && (
-                <div style={{ color: tx.usdcAmount > 0 ? "#4caf50" : tx.usdcAmount < 0 ? "#f44336" : "inherit" }}>
+                <div style={{ color: tx.usdcAmount > 0 ? "var(--yes-color)" : tx.usdcAmount < 0 ? "var(--no-color)" : "inherit", fontWeight: "bold" }}>
                   {tx.usdcAmount > 0 ? "+" : ""}{tx.usdcAmount.toFixed(2)} USDC
                 </div>
               )}
-              {tx.type === "RESOLVE" && tx.outcome !== undefined && (
-                <div>Winner: {tx.outcome}</div>
-              )}
               {tx.feeSol !== undefined && (
-                <div style={{ color: "#888", fontSize: "0.8em", marginTop: "4px" }}>Network fee: {tx.feeSol.toFixed(6)} SOL</div>
+                <div style={{ color: "var(--ink-muted)", fontSize: "0.78rem" }}>Network fee: {tx.feeSol.toFixed(6)} SOL</div>
               )}
             </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px", fontSize: "0.85em", color: "#888" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--border-subtle)", fontSize: "0.8rem", color: "var(--ink-muted)" }}>
               <div>
-                {tx.blockTime ? new Date(tx.blockTime * 1000).toLocaleString(undefined, {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit"
-                }) : "Unknown time"}
+                {tx.blockTime ? new Date(tx.blockTime * 1000).toLocaleString() : "Unknown time"}
               </div>
-              <a href={tx.explorerUrl} target="_blank" rel="noreferrer" style={{ color: "#2196f3", textDecoration: "none" }}>
-                View transaction ↗
+              <a href={tx.explorerUrl} target="_blank" rel="noreferrer" style={{ color: "var(--accent-cyan)", textDecoration: "none", display: "flex", alignItems: "center", gap: "4px" }}>
+                View on Explorer <ExternalLink size={12} />
               </a>
             </div>
           </div>
         ))}
       </div>
 
-      {loading && <div style={{ marginTop: "15px", color: "#888" }}>Loading transactions...</div>}
+      {loading && <div style={{ marginTop: "20px", color: "var(--ink-muted)", textAlign: "center" }}>Loading transaction signatures...</div>}
       
       {!loading && hasMore && (
         <button 
           onClick={() => fetchTxs(false)} 
-          style={{ marginTop: "20px", padding: "10px", width: "100%", background: "#222", border: "1px solid #444", color: "#fff", cursor: "pointer", borderRadius: "4px" }}
+          style={{ marginTop: "24px", padding: "12px", width: "100%", background: "var(--bg-card)", border: "1px solid var(--border-subtle)", color: "#fff", cursor: "pointer", borderRadius: "8px", fontWeight: "bold" }}
         >
-          Load more
+          Load More History
         </button>
       )}
       
       {!loading && !hasMore && transactions.length > 0 && (
-        <div style={{ marginTop: "20px", textAlign: "center", color: "#555", fontSize: "0.9em" }}>
-          No more transactions
+        <div style={{ marginTop: "24px", textAlign: "center", color: "var(--ink-muted)", fontSize: "0.85rem" }}>
+          End of transaction history
         </div>
       )}
     </div>

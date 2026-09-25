@@ -167,7 +167,7 @@ async function tick() {
   // Poll native markets from Solana
   if (cfg && !DRY_RUN) {
     try {
-      const onChainMarkets = await cfg.program.account.market.all();
+      const onChainMarkets = await (cfg.program.account as any).market.all();
       for (const onChain of onChainMarkets) {
         const data = onChain.account as any;
         const polyId = data.polymarketId;
