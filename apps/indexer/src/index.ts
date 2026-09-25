@@ -8,7 +8,6 @@ import cors from "cors";
 import {
   collectBinaryMarkets,
   type StoredMarket,
-  type GammaMarket,
   type CuratedMarket,
   calculateLmsrPrices,
 } from "@prism/shared";
