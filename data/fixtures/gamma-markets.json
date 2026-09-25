@@ -1,0 +1,38 @@
+[
+  {
+    "id": "lifecycle-test-001",
+    "question": "Lifecycle Test Market 001?",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0.50\", \"0.50\"]",
+    "endDateIso": "2026-12-31T23:59:59Z",
+    "closed": false,
+    "active": true
+  },
+  {
+    "id": "fixture-btc-100k-v5",
+    "question": "Will Bitcoin hit $100k by end of 2026? (V5)",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0.62\", \"0.38\"]",
+    "endDateIso": "2026-12-31T23:59:59Z",
+    "closed": false,
+    "active": true
+  },
+  {
+    "id": "fixture-sol-etf-v5",
+    "question": "Will a Solana spot ETF be approved in 2026? (V5)",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0.45\", \"0.55\"]",
+    "endDateIso": "2026-12-31T23:59:59Z",
+    "closed": false,
+    "active": true
+  },
+  {
+    "id": "fixture-near-term-v5",
+    "question": "Will PRISM Phase 1 localnet demo succeed? (V5)",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0.80\", \"0.20\"]",
+    "endDateIso": "2026-09-14T12:00:00Z",
+    "closed": false,
+    "active": true
+  }
+]
