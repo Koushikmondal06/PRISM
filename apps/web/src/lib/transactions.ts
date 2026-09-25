@@ -23,6 +23,32 @@ const PRISM_PROGRAM_ID = "6cD9BZG2bddZZ1xoNReLVEvdYVaxpxY97F7MfZyov7XW";
 const USDC_MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const coder = new BorshCoder(idl as any);
 
+const transactionCache = new Map<string, { data: any, timestamp: number }>();
+const inFlightRequests = new Map<string, Promise<any>>();
+const CACHE_TTL = 30000; // 30 seconds
+
+async function callWithRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        try {
+            return await fn();
+        } catch (error: any) {
+            const msg = error.message?.toLowerCase() || String(error).toLowerCase();
+            if (msg.includes("429") || msg.includes("too many requests") || msg.includes("rate limit")) {
+                attempt++;
+                if (attempt >= maxRetries) {
+                    throw new Error("RPC rate limit reached. Please retry shortly.");
+                }
+                const delay = 500 * Math.pow(2, attempt - 1);
+                await new Promise(r => setTimeout(r, delay));
+            } else {
+                throw error;
+            }
+        }
+    }
+    throw new Error("RPC rate limit reached. Please retry shortly.");
+}
+
 function calculateUsdcDelta(tx: ParsedTransactionWithMeta, walletAddress: string): number {
     if (!tx.meta?.preTokenBalances || !tx.meta?.postTokenBalances) return 0;
     
@@ -259,122 +285,157 @@ export async function fetchMarketTransactions(
     connection: Connection,
     marketPda: string,
     walletAddress: string | null,
-    options?: { before?: string; limit?: number }
+    options?: { before?: string; limit?: number; force?: boolean }
 ) {
-    const pubkey = new PublicKey(marketPda);
-    const signatures = await connection.getSignaturesForAddress(pubkey, {
-        limit: options?.limit || 50,
-        before: options?.before,
-    }, "confirmed");
-
-    if (signatures.length === 0) {
-        return { transactions: [], lastSignature: null };
-    }
-
-    const txSignatures = signatures.map(s => s.signature);
+    const cacheKey = `${marketPda}-${walletAddress || ''}`;
     
-    const batchSize = 25;
-    let parsedTxs: (ParsedTransactionWithMeta | null)[] = [];
-    for (let i = 0; i < txSignatures.length; i += batchSize) {
-        const batch = txSignatures.slice(i, i + batchSize);
-        const fetched = await connection.getParsedTransactions(batch, { maxSupportedTransactionVersion: 0 });
-        parsedTxs = parsedTxs.concat(fetched);
+    if (!options?.force) {
+        const cached = transactionCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+            return cached.data;
+        }
+        if (inFlightRequests.has(cacheKey)) {
+            return inFlightRequests.get(cacheKey);
+        }
     }
 
-    const transactions: WalletTransaction[] = [];
+    const promise = (async () => {
+        const pubkey = new PublicKey(marketPda);
+        const targetCount = options?.limit || 15;
+        const MAX_PAGES = 3;
+        const PAGE_SIZE = 15;
+        
+        let allTransactions: WalletTransaction[] = [];
+        let beforeSig: string | undefined = options?.before;
+        let lastSignature: string | null = null;
+        let pagesFetched = 0;
+        
+        while (allTransactions.length < targetCount && pagesFetched < MAX_PAGES) {
+            pagesFetched++;
+            const signatures = await callWithRetry(() => 
+                connection.getSignaturesForAddress(pubkey, {
+                    limit: PAGE_SIZE,
+                    before: beforeSig,
+                }, "confirmed")
+            );
+            
+            if (signatures.length === 0) break;
+            
+            lastSignature = signatures[signatures.length - 1].signature;
+            beforeSig = lastSignature;
+            
+            const txSignatures = signatures.map(s => s.signature);
+            
+            const batchSize = 25;
+            let parsedTxs: (ParsedTransactionWithMeta | null)[] = [];
+            for (let i = 0; i < txSignatures.length; i += batchSize) {
+                const batch = txSignatures.slice(i, i + batchSize);
+                const fetched = await callWithRetry(() => 
+                    connection.getParsedTransactions(batch, { maxSupportedTransactionVersion: 0 })
+                );
+                parsedTxs = parsedTxs.concat(fetched);
+            }
 
-    for (let i = 0; i < parsedTxs.length; i++) {
-        const tx = parsedTxs[i];
-        const sigMeta = signatures[i];
-        if (!tx) continue;
+            for (let i = 0; i < parsedTxs.length; i++) {
+                const tx = parsedTxs[i];
+                const sigMeta = signatures[i];
+                if (!tx) continue;
 
-        // Verify that this transaction contains the PRISM program AND the market PDA
-        const accountKeys = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
-        if (!accountKeys.includes(PRISM_PROGRAM_ID) || !accountKeys.includes(marketPda)) {
-            continue;
-        }
+                // Verify that this transaction contains the PRISM program AND the market PDA
+                const accountKeys = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
+                if (!accountKeys.includes(PRISM_PROGRAM_ID) || !accountKeys.includes(marketPda)) {
+                    continue;
+                }
 
-        let status: "success" | "failed" = tx.meta?.err === null ? "success" : "failed";
-        let errorMsg = undefined;
-        if (tx.meta?.err) {
-            errorMsg = JSON.stringify(tx.meta.err);
-            if (tx.meta.logMessages) {
-                const anchorErrLog = tx.meta.logMessages.find(l => l.includes("Error Code:"));
-                if (anchorErrLog) {
-                    const match = anchorErrLog.match(/Error Message: (.*)/);
-                    if (match) errorMsg = match[1];
-                    else {
-                        const codeMatch = anchorErrLog.match(/Error Code: ([A-Za-z0-9_]+)/);
-                        if (codeMatch) errorMsg = codeMatch[1];
+                let status: "success" | "failed" = tx.meta?.err === null ? "success" : "failed";
+                let errorMsg = undefined;
+                if (tx.meta?.err) {
+                    errorMsg = JSON.stringify(tx.meta.err);
+                    if (tx.meta.logMessages) {
+                        const anchorErrLog = tx.meta.logMessages.find(l => l.includes("Error Code:"));
+                        if (anchorErrLog) {
+                            const match = anchorErrLog.match(/Error Message: (.*)/);
+                            if (match) errorMsg = match[1];
+                            else {
+                                const codeMatch = anchorErrLog.match(/Error Code: ([A-Za-z0-9_]+)/);
+                                if (codeMatch) errorMsg = codeMatch[1];
+                            }
+                        }
                     }
                 }
-            }
-        }
 
-        const feeSol = (tx.meta?.fee || 0) / 1_000_000_000;
-        let type: WalletTransaction["type"] = "OTHER";
-        let outcome: "YES" | "NO" | undefined = undefined;
-        let shares = undefined;
-        let prismInst: any = null;
+                const feeSol = (tx.meta?.fee || 0) / 1_000_000_000;
+                let type: WalletTransaction["type"] = "OTHER";
+                let outcome: "YES" | "NO" | undefined = undefined;
+                let shares = undefined;
+                let prismInst: any = null;
 
-        const instructions = tx.transaction.message.instructions;
-        for (const inst of instructions) {
-            if (inst.programId.toBase58() === PRISM_PROGRAM_ID) {
-                if ('data' in inst) {
-                    try {
-                        const decoded = coder.instruction.decode(inst.data, "base58");
-                        if (decoded) {
-                            prismInst = decoded;
-                            if (decoded.name === "createMarket" || decoded.name === "create_market") type = "CREATE_MARKET";
-                            else if (decoded.name === "buy") type = "BUY";
-                            else if (decoded.name === "sell") type = "SELL";
-                            else if (decoded.name === "resolve") type = "RESOLVE";
-                            else if (decoded.name === "freeze") type = "FREEZE";
-                            else if (decoded.name === "redeem") type = "REDEEM";
+                const instructions = tx.transaction.message.instructions;
+                for (const inst of instructions) {
+                    if (inst.programId.toBase58() === PRISM_PROGRAM_ID) {
+                        if ('data' in inst) {
+                            try {
+                                const decoded = coder.instruction.decode(inst.data, "base58");
+                                if (decoded) {
+                                    prismInst = decoded;
+                                    if (decoded.name === "createMarket" || decoded.name === "create_market") type = "CREATE_MARKET";
+                                    else if (decoded.name === "buy") type = "BUY";
+                                    else if (decoded.name === "sell") type = "SELL";
+                                    else if (decoded.name === "resolve") type = "RESOLVE";
+                                    else if (decoded.name === "freeze") type = "FREEZE";
+                                    else if (decoded.name === "redeem") type = "REDEEM";
+                                }
+                            } catch (e) { }
                         }
-                    } catch (e) { }
+                    }
                 }
+
+                let usdcDelta = 0;
+                if (walletAddress) {
+                    usdcDelta = calculateUsdcDelta(tx, walletAddress);
+                }
+
+                if (prismInst) {
+                    if (prismInst.name === "buy" || prismInst.name === "sell") {
+                        outcome = prismInst.data?.outcome === 0 ? "YES" : "NO";
+                        const rawAmount = toNumeric(prismInst.data?.shareAmount ?? prismInst.data?.share_amount);
+                        shares = rawAmount !== null ? rawAmount / 1_000_000 : undefined;
+                    }
+                    if (prismInst.name === "resolve") {
+                        outcome = prismInst.data?.winningOutcome === 0 || prismInst.data?.winning_outcome === 0 ? "YES" : "NO";
+                    }
+                }
+
+                allTransactions.push({
+                    signature: sigMeta.signature,
+                    slot: tx.slot,
+                    blockTime: tx.blockTime ?? null,
+                    status,
+                    type,
+                    program: PRISM_PROGRAM_ID,
+                    marketPda,
+                    outcome,
+                    shares,
+                    usdcAmount: usdcDelta !== 0 ? usdcDelta : undefined,
+                    feeSol,
+                    error: errorMsg,
+                    explorerUrl: `https://explorer.solana.com/tx/${sigMeta.signature}?cluster=devnet`,
+                });
             }
         }
 
-        let usdcDelta = 0;
-        if (walletAddress) {
-            usdcDelta = calculateUsdcDelta(tx, walletAddress);
-        }
+        return {
+            transactions: allTransactions.slice(0, targetCount),
+            lastSignature
+        };
+    })();
 
-        if (prismInst) {
-            if (prismInst.name === "buy" || prismInst.name === "sell") {
-                outcome = prismInst.data?.outcome === 0 ? "YES" : "NO";
-                const rawAmount = toNumeric(prismInst.data?.shareAmount ?? prismInst.data?.share_amount);
-                shares = rawAmount !== null ? rawAmount / 1_000_000 : undefined;
-            }
-            if (prismInst.name === "resolve") {
-                outcome = prismInst.data?.winningOutcome === 0 || prismInst.data?.winning_outcome === 0 ? "YES" : "NO";
-            }
-            if (prismInst.name === "redeem") {
-                // If it's a redeem, we might not have the exact outcome easily available from the instruction unless we look at the market state, but that's fine.
-            }
-        }
-
-        transactions.push({
-            signature: sigMeta.signature,
-            slot: tx.slot,
-            blockTime: tx.blockTime ?? null,
-            status,
-            type,
-            program: PRISM_PROGRAM_ID,
-            marketPda,
-            outcome,
-            shares,
-            usdcAmount: usdcDelta !== 0 ? usdcDelta : undefined,
-            feeSol,
-            error: errorMsg,
-            explorerUrl: `https://explorer.solana.com/tx/${sigMeta.signature}?cluster=devnet`,
-        });
+    inFlightRequests.set(cacheKey, promise);
+    try {
+        const result = await promise;
+        transactionCache.set(cacheKey, { data: result, timestamp: Date.now() });
+        return result;
+    } finally {
+        inFlightRequests.delete(cacheKey);
     }
-
-    return {
-        transactions,
-        lastSignature: signatures[signatures.length - 1].signature
-    };
 }

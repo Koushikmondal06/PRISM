@@ -31,25 +31,36 @@ export default function MarketActivity({
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
 
-  const fetchTxs = useCallback(async () => {
+  const fetchTxs = useCallback(async (force = false, signal?: AbortSignal) => {
     if (!marketPda) return;
+    
     setLoading(true);
-    setError(null);
+    if (force) setError(null); // Keep existing error unless forcing
+    
     try {
-      const options = { limit: 50 }; // We only fetch top 50, then slice internally
+      const options = { limit: 15, force }; // Fetch 15 max instead of 50
       const walletAddr = publicKey ? publicKey.toBase58() : null;
       const result = await fetchMarketTransactions(connection, marketPda, walletAddr, options);
+      
+      if (signal?.aborted) return;
+      
       setTransactions(result.transactions);
+      setError(null);
     } catch (err: any) {
+      if (signal?.aborted) return;
       console.error("Failed to fetch market transactions", err);
       setError(err.message || String(err));
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
   }, [connection, marketPda, publicKey]);
 
   useEffect(() => {
-    fetchTxs();
+    const controller = new AbortController();
+    fetchTxs(false, controller.signal);
+    return () => controller.abort();
   }, [fetchTxs, refreshTrigger]);
 
   const displayedTxs = showAll ? transactions : transactions.slice(0, 5);
@@ -58,7 +69,7 @@ export default function MarketActivity({
     <div style={{ marginTop: "30px", borderTop: "1px solid #333", paddingTop: "20px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
         <h3 style={{ margin: 0, fontSize: "1.1em", fontWeight: "normal", color: "#ccc" }}>RECENT ACTIVITY</h3>
-        <button onClick={fetchTxs} className="ghost" style={{ cursor: "pointer", fontSize: "0.85em", padding: "4px 8px" }} title="Refresh Activity">
+        <button onClick={() => fetchTxs(true)} className="ghost" style={{ cursor: "pointer", fontSize: "0.85em", padding: "4px 8px" }} title="Refresh Activity">
           ↻
         </button>
       </div>
@@ -69,8 +80,8 @@ export default function MarketActivity({
 
       {error && (
         <div style={{ color: "#f44336", fontSize: "0.9em" }}>
-          Unable to load recent activity.
-          <button onClick={fetchTxs} style={{ marginLeft: "10px", background: "none", border: "1px solid #444", color: "#ccc", cursor: "pointer", borderRadius: "4px" }}>Retry</button>
+          Unable to load recent activity: {error}
+          <button onClick={() => fetchTxs(true)} style={{ marginLeft: "10px", background: "none", border: "1px solid #444", color: "#ccc", cursor: "pointer", borderRadius: "4px" }}>Retry</button>
         </div>
       )}
 
