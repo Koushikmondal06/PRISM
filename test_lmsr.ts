@@ -9,7 +9,7 @@ const provider = anchor.AnchorProvider.env();
 anchor.setProvider(provider);
 
 // Read IDL
-const idl = JSON.parse(fs.readFileSync("./target/idl/prism.json", "utf8"));
+const idl = JSON.parse(fs.readFileSync("./apps/web/src/idl/prism.json", "utf8"));
 const programId = new PublicKey(idl.address);
 const program = new Program(idl, provider);
 
@@ -54,7 +54,11 @@ function calculateLmsrCost(
   if (outcome === 0) newYes += shareAmount;
   else newNo += shareAmount;
 
-  const cost = b * (Math.log(newYes) + Math.log(newNo) - Math.log(oldYes) - Math.log(oldNo));
+  const maxQ = Math.max(newYes / b, newNo / b);
+  const newCost = b * (maxQ + Math.log(Math.exp(newYes / b - maxQ) + Math.exp(newNo / b - maxQ)));
+  const maxQOld = Math.max(oldYes / b, oldNo / b);
+  const oldCost = b * (maxQOld + Math.log(Math.exp(oldYes / b - maxQOld) + Math.exp(oldNo / b - maxQOld)));
+  const cost = newCost - oldCost;
   return Math.max(0, Math.round(cost));
 }
 
@@ -100,7 +104,7 @@ async function main() {
     console.log("calculated YES probability:", prices.yesPrice);
     console.log("calculated NO probability:", prices.noPrice);
     
-    const buySharesHuman = 1;
+    const buySharesHuman = 4;
     const buySharesRaw = buySharesHuman * 1_000_000;
     
     const frontendCostRaw = calculateLmsrCost(marketAcc.lmsrB.toNumber(), marketAcc.yesSupply.toNumber(), marketAcc.noSupply.toNumber(), buySharesRaw, 0);

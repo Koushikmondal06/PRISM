@@ -154,3 +154,48 @@ app.listen(port, () => {
   console.error('Server error:', err);
   process.exit(1);
 });
+
+const fs = require('fs');
+const path = require('path');
+const REPO_ROOT = path.resolve(__dirname, '..');
+const DATA_DIR = path.join(REPO_ROOT, 'data');
+const GAMMA_CACHE_PATH = path.join(DATA_DIR, 'gamma-cache.json');
+const ADMIN_ALLOWLIST_PATH = path.join(DATA_DIR, 'polymarket-selection.json');
+
+app.get('/api/admin/gamma', (req, res) => {
+  try {
+    let cache = { markets: [] };
+    if (fs.existsSync(GAMMA_CACHE_PATH)) {
+      cache = JSON.parse(fs.readFileSync(GAMMA_CACHE_PATH, 'utf8'));
+    }
+    let allowlist = { markets: {} };
+    if (fs.existsSync(ADMIN_ALLOWLIST_PATH)) {
+      allowlist = JSON.parse(fs.readFileSync(ADMIN_ALLOWLIST_PATH, 'utf8'));
+    }
+    
+    const marketsWithState = cache.markets.map(m => {
+      const config = allowlist.markets[m.polymarketId];
+      return { ...m, enabled: config ? config.enabled : false };
+    });
+    
+    res.json(marketsWithState);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/gamma/toggle', (req, res) => {
+  try {
+    const { polymarketId, enabled } = req.body;
+    let allowlist = { markets: {} };
+    if (fs.existsSync(ADMIN_ALLOWLIST_PATH)) {
+      allowlist = JSON.parse(fs.readFileSync(ADMIN_ALLOWLIST_PATH, 'utf8'));
+    }
+    allowlist.markets[polymarketId] = { enabled };
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(ADMIN_ALLOWLIST_PATH, JSON.stringify(allowlist, null, 2));
+    res.json({ success: true, polymarketId, enabled });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});

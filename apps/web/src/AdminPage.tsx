@@ -28,6 +28,7 @@ function vaultPda(market: PublicKey) {
 }
 
 function AdminMarketItem({ m, program, wallet, setMarkets }: any) {
+  const { connection } = useConnection();
   const [isResolving, setIsResolving] = useState(false);
 
   const handleResolve = async (outcome: number) => {
@@ -70,6 +71,79 @@ function AdminMarketItem({ m, program, wallet, setMarkets }: any) {
       setIsResolving(false);
     }
   };
+
+  const handleCloseMarket = async () => {
+    if (!program || !wallet.publicKey) return;
+    if (!confirm(`Are you sure you want to CLOSE this market permanently?\n\nQuestion: ${m.question}\nPDA: ${m.pubkey}\nYES supply: ${m.raw?.yesSupply || 0}\nNO supply: ${m.raw?.noSupply || 0}\n\nWARNING: Ensure the vault is safe to close.`)) {
+      return;
+    }
+    try {
+      const marketPubkey = new PublicKey(m.pubkey);
+      
+      // Check if already closed
+      const currentAccountInfo = await connection.getAccountInfo(marketPubkey);
+      if (currentAccountInfo === null) {
+        setMarkets((prev: any) => prev.filter((market: any) => market.pubkey !== m.pubkey));
+        alert("Market is already closed.");
+        return;
+      }
+
+      const [vaultPdaAddr] = vaultPda(marketPubkey);
+      const account = await program.account.market.fetch(marketPubkey);
+      const usdcMint = account.usdcMint;
+      
+      const authorityUsdcInfo = await connection.getParsedTokenAccountsByOwner(
+        wallet.publicKey,
+        { mint: usdcMint }
+      );
+      
+      if (authorityUsdcInfo.value.length === 0) {
+        alert("Admin has no USDC account to receive vault funds.");
+        return;
+      }
+      
+      const authorityUsdc = authorityUsdcInfo.value[0].pubkey;
+
+      console.log("[CLOSE MARKET DEBUG]", {
+        connectionEndpoint: connection.rpcEndpoint,
+        wallet: wallet?.publicKey?.toBase58(),
+        marketPda: marketPubkey.toBase58(),
+        source: m.source,
+      });
+
+      const tx = await program.methods
+        .closeMarket()
+        .accounts({
+          authority: wallet.publicKey,
+          market: marketPubkey,
+          vault: vaultPdaAddr,
+          authorityUsdc,
+          tokenProgram: utils.token.TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+      console.log("[CLOSE MARKET SUCCESS]", tx);
+      alert(`Market Closed Successfully! TX: ${tx}`);
+      
+      // Verification phase
+      const closedAccount = await connection.getAccountInfo(marketPubkey);
+      if (closedAccount === null) {
+        alert("Verified: Market PDA no longer exists on-chain.");
+        setMarkets((prev: any) => prev.filter((market: any) => market.pubkey !== m.pubkey));
+      } else {
+        alert("ERROR: Market PDA still exists on-chain!");
+      }
+
+    } catch (err: any) {
+      console.error("[CLOSE MARKET ERROR]", {
+        message: err?.message,
+        logs: err?.logs,
+        stack: err?.stack,
+      });
+      alert("Close Market Failed: " + err.message);
+    }
+  };
+
 
   return (
     <div style={{ padding: "20px", background: "var(--bg-card)", border: "1px solid var(--border-subtle)", borderRadius: "12px", boxShadow: "var(--shadow-card)" }}>
@@ -146,6 +220,16 @@ function AdminMarketItem({ m, program, wallet, setMarkets }: any) {
             </div>
           </div>
         )}
+        
+        {m.source === "prism" && (
+          <div style={{ marginTop: "15px", paddingTop: "10px", borderTop: "1px dashed #444", textAlign: "right" }}>
+            <button 
+              onClick={handleCloseMarket}
+              style={{ padding: "6px 12px", background: "#7f1d1d", color: "#fca5a5", border: "1px solid #991b1b", borderRadius: "4px", fontSize: "0.85em", fontWeight: "bold", cursor: "pointer" }}>
+              [ CLOSE MARKET ]
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -176,6 +260,28 @@ export default function AdminPage() {
   const [busy, setBusy] = useState(false);
   
   const [markets, setMarkets] = useState<any[]>([]);
+  const [gammaMarkets, setGammaMarkets] = useState<any[]>([]);
+
+  const loadGammaMarkets = () => {
+    fetch("http://localhost:3000/api/admin/gamma")
+      .then(r => r.json())
+      .then(data => setGammaMarkets(data))
+      .catch(console.error);
+  };
+
+  const toggleGammaMarket = async (polymarketId: string, enabled: boolean) => {
+    try {
+      await fetch("http://localhost:3000/api/admin/gamma/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ polymarketId, enabled }),
+      });
+      setGammaMarkets(prev => prev.map(m => m.polymarketId === polymarketId ? { ...m, enabled } : m));
+    } catch (e) {
+      console.error(e);
+      alert("Failed to toggle market");
+    }
+  };
 
   const loadMarkets = () => {
     fetch("/markets.json", { cache: "no-store" })
@@ -190,7 +296,10 @@ export default function AdminPage() {
 
   useEffect(() => {
     loadMarkets();
-  }, []);
+    if (isAdmin) {
+      loadGammaMarkets();
+    }
+  }, [isAdmin]);
 
   const program = useMemo(() => {
     if (!wallet.publicKey) return null;
@@ -353,6 +462,35 @@ export default function AdminPage() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {isAdmin && (
+        <div style={{ marginTop: "40px" }}>
+          <h3>POLYMARKET MARKETS (ADMIN)</h3>
+          <p style={{ color: "#888", fontSize: "0.9em" }}>Select which Polymarket markets are publicly visible. These markets are fetched by the indexer.</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {gammaMarkets.length === 0 ? <p>No cached Gamma markets found.</p> : gammaMarkets.map((m: any) => (
+              <div key={m.polymarketId} style={{ padding: "10px", background: "#1a1a1a", border: "1px solid #333", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <h5 style={{ margin: "0 0 5px 0", color: "#fff" }}>{m.question}</h5>
+                  <div style={{ fontSize: "0.8em", color: "#888", display: "flex", gap: "15px" }}>
+                    <span>ID: {m.polymarketId}</span>
+                    <span>Active: {m.active ? "Yes" : "No"}</span>
+                    <span>Closed: {m.closed ? "Yes" : "No"}</span>
+                    <span>Prices: Y:{(m.yesPrice*100).toFixed(1)}% N:{(m.noPrice*100).toFixed(1)}%</span>
+                  </div>
+                </div>
+                <div>
+                  {m.enabled ? (
+                    <button onClick={() => toggleGammaMarket(m.polymarketId, false)} style={{ background: "#7f1d1d", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer" }}>DISABLE</button>
+                  ) : (
+                    <button onClick={() => toggleGammaMarket(m.polymarketId, true)} style={{ background: "#065f46", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer" }}>ENABLE</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

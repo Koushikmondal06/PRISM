@@ -40,7 +40,7 @@ async function main() {
   const programId = new PublicKey((idl as { address: string }).address);
 
   const [configPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("config")],
+    [Buffer.from("config_v3")],
     programId
   );
 
