@@ -245,6 +245,45 @@ pub mod prism {
         Ok(())
     }
 
+    pub fn close_market(ctx: Context<CloseMarket>) -> Result<()> {
+        let market = &ctx.accounts.market;
+        require!(market.authority == ctx.accounts.authority.key(), PrismError::InvalidOwner);
+
+        let market_key = ctx.accounts.market.key();
+        let bump = ctx.accounts.market.bump;
+        let polymarket_id = ctx.accounts.market.polymarket_id.clone();
+        let signer_seeds: &[&[&[u8]]] = &[&[b"market", polymarket_id.as_bytes(), &[bump]]];
+
+        // Transfer all remaining USDC from vault to authority_usdc (if any)
+        if ctx.accounts.vault.amount > 0 {
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.vault.to_account_info(),
+                        to: ctx.accounts.authority_usdc.to_account_info(),
+                        authority: ctx.accounts.market.to_account_info(),
+                    },
+                    signer_seeds,
+                ),
+                ctx.accounts.vault.amount,
+            )?;
+        }
+
+        // Close the vault token account
+        token::close_account(CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            anchor_spl::token::CloseAccount {
+                account: ctx.accounts.vault.to_account_info(),
+                destination: ctx.accounts.authority.to_account_info(),
+                authority: ctx.accounts.market.to_account_info(),
+            },
+            signer_seeds,
+        ))?;
+
+        Ok(())
+    }
+
     /// Halt trading at/after Polymarket end_date (before resolution is known).
     pub fn freeze(ctx: Context<OracleOnly>) -> Result<()> {
         let market = &mut ctx.accounts.market;
@@ -427,6 +466,31 @@ pub enum MarketStatus {
 }
 
 // ─── Contexts ───────────────────────────────────────────────────────────────
+
+#[derive(Accounts)]
+pub struct CloseMarket<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        close = authority,
+        has_one = authority
+    )]
+    pub market: Account<'info, Market>,
+    #[account(
+        mut,
+        seeds = [b"vault", market.key().as_ref()],
+        bump = market.vault_bump
+    )]
+    pub vault: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        constraint = authority_usdc.owner == authority.key(),
+        constraint = authority_usdc.mint == market.usdc_mint
+    )]
+    pub authority_usdc: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
