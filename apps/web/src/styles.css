@@ -1,0 +1,362 @@
+:root {
+  --bg0: #0c1412;
+  --bg1: #13201c;
+  --ink: #e8f0ec;
+  --muted: #8aa399;
+  --line: rgba(232, 240, 236, 0.12);
+  --yes: #3dba7e;
+  --no: #e07a5f;
+  --accent: #c4a35a;
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-body: "DM Sans", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(61, 186, 126, 0.16), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, rgba(196, 163, 90, 0.12), transparent 50%),
+    linear-gradient(165deg, var(--bg0), var(--bg1) 45%, #0a100e);
+}
+
+.page {
+  min-height: 100vh;
+  padding: 1.25rem clamp(1rem, 3vw, 2rem) 2rem;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.mark {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.tag {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 340px) 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rail,
+.stage {
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+
+.rail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.rail h2 {
+  margin: 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.market-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.market {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+  padding: 0.75rem 0.5rem;
+  cursor: pointer;
+  display: grid;
+  gap: 0.35rem;
+  font: inherit;
+}
+
+.market:hover,
+.market.active {
+  border-color: rgba(196, 163, 90, 0.35);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.market .q {
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.st {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.st.open {
+  color: var(--yes);
+}
+.st.frozen {
+  color: var(--accent);
+}
+.st.resolved {
+  color: var(--no);
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.75rem;
+}
+
+.stage h1 {
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-weight: 400;
+  line-height: 1.15;
+  margin: 0 0 0.75rem;
+  max-width: 18ch;
+}
+
+.meta,
+.pos,
+.msg,
+.empty,
+.placeholder p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.trade {
+  margin-top: 1.75rem;
+  display: grid;
+  gap: 1rem;
+  max-width: 420px;
+}
+
+.trade label {
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.trade input {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  padding: 0.7rem 0.85rem;
+  font: inherit;
+  font-size: 1.1rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+button.yes,
+button.no,
+button.ghost {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  padding: 0.65rem 0.95rem;
+  cursor: pointer;
+}
+
+button.yes {
+  background: rgba(61, 186, 126, 0.15);
+  border-color: rgba(61, 186, 126, 0.45);
+}
+
+button.no {
+  background: rgba(224, 122, 95, 0.12);
+  border-color: rgba(224, 122, 95, 0.4);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.ghost {
+  color: var(--muted);
+}
+
+.msg {
+  color: var(--accent);
+}
+
+.placeholder h1 {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  margin: 0 0 0.5rem;
+}
+
+/* AI Curation & Tags */
+.ai-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(196, 163, 90, 0.15);
+  border: 1px solid rgba(196, 163, 90, 0.4);
+  color: var(--accent);
+}
+
+.ai-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.ai-tag {
+  background: rgba(232, 240, 236, 0.08);
+  border: 1px solid var(--line);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.ai-summary-box {
+  background: rgba(0, 0, 0, 0.2);
+  border-left: 3px solid var(--accent);
+  padding: 0.75rem 1rem;
+  border-radius: 0 6px 6px 0;
+  margin: 0.75rem 0 1.25rem;
+  font-size: 0.88rem;
+  color: var(--ink);
+}
+
+.ai-summary-box h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+/* LMSR Probability Bar */
+.prob-container {
+  margin: 1rem 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.prob-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.prob-yes {
+  color: var(--yes);
+}
+.prob-no {
+  color: var(--no);
+}
+
+.prob-bar {
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(224, 122, 95, 0.4);
+  overflow: hidden;
+  display: flex;
+}
+
+.prob-fill-yes {
+  background: var(--yes);
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+/* Cost estimate pill */
+.cost-estimate {
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.4rem 0.75rem;
+  border-radius: 4px;
+  border: 1px dashed var(--line);
+  margin-top: 0.25rem;
+}
+
+/* Resolution QA Warning Card */
+.resolution-qa-card {
+  background: rgba(224, 122, 95, 0.1);
+  border: 1px solid rgba(224, 122, 95, 0.4);
+  padding: 0.85rem 1rem;
+  border-radius: 6px;
+  margin-top: 1rem;
+}
+
+.resolution-qa-card.valid {
+  background: rgba(61, 186, 126, 0.1);
+  border-color: rgba(61, 186, 126, 0.4);
+}
+
+.resolution-qa-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
