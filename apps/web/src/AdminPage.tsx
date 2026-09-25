@@ -301,34 +301,48 @@ export default function AdminPage() {
     }
   }, [isAdmin]);
 
+  const walletPubkeyStr = wallet.publicKey?.toBase58();
+
   const program = useMemo(() => {
-    if (!wallet.publicKey) return null;
+    if (!wallet.publicKey || !wallet.connected) return null;
     const provider = new AnchorProvider(
       connection,
       wallet as unknown as AnchorProvider["wallet"],
       { commitment: "confirmed" }
     );
     return new Program(idl as never, provider);
-  }, [wallet.publicKey, connection]);
+  }, [walletPubkeyStr, wallet.connected, connection]);
 
   useEffect(() => {
-    if (!program || !wallet.publicKey) {
+    if (!program || !wallet.publicKey || !wallet.connected) {
       setIsAdmin(null);
       return;
     }
+    
+    let isMounted = true;
+    
     const checkAdmin = async () => {
       try {
         const [confPda] = configPda();
         const confData = await (program.account as any).config.fetch(confPda);
+        if (!isMounted) return;
+        
         setAuthority(confData.authority.toBase58());
-        setIsAdmin(confData.authority.toBase58() === wallet.publicKey?.toBase58());
-      } catch (err) {
+        setIsAdmin(confData.authority.equals(wallet.publicKey));
+      } catch (err: any) {
+        if (!isMounted) return;
         console.error("Failed to fetch config", err);
+        setAuthority(`Error: ${err.message}`);
         setIsAdmin(false);
       }
     };
+    
     checkAdmin();
-  }, [program, wallet.publicKey]);
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [program, walletPubkeyStr, wallet.connected]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

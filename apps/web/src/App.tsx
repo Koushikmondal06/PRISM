@@ -430,8 +430,11 @@ export default function App() {
   const yesPct = yesPctNum.toFixed(1);
   const noPct = noPctNum.toFixed(1);
 
-  const currentStatus = onChainState?.status || active?.status || "open";
-
+  let currentStatus = onChainState?.status || active?.status || "open";
+  const activeEndTs = Number(onChainState?.endTs || active?.end_ts || active?.endTs || 0);
+  if (currentStatus === "open" && activeEndTs > 0 && Date.now() / 1000 > activeEndTs) {
+    currentStatus = "frozen";
+  }
   // LMSR Cost estimate calculation
   const shareNum = Math.round((Number(shares) || 1) * 1_000_000);
   const estimatedBuyYesCost = onChainState
