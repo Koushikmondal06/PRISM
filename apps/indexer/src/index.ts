@@ -14,6 +14,7 @@ import {
 } from "@prism/shared";
 import { loadConfig, createMarketOnChain, freezeMarketOnChain } from "./solana.js";
 import pg from "pg";
+import { tigerdb } from "./db/tigerdb.js";
 
 // Uncaught Error Handlers
 process.on("uncaughtException", (err) => {
@@ -61,6 +62,24 @@ let currentProjection: Record<string, StoredMarket> = {};
 let server: any = null;
 let timer: NodeJS.Timeout | null = null;
 
+const ADMIN_CONFIG_PATH = path.join(DATA_DIR, "admin-config.json");
+
+function loadAdminConfig(): any {
+  if (fs.existsSync(ADMIN_CONFIG_PATH)) {
+    try {
+      return JSON.parse(fs.readFileSync(ADMIN_CONFIG_PATH, "utf8"));
+    } catch (e) {
+      console.error("[indexer] failed to load admin config", e);
+    }
+  }
+  return {};
+}
+
+function saveAdminConfig(config: any) {
+  fs.mkdirSync(path.dirname(ADMIN_CONFIG_PATH), { recursive: true });
+  fs.writeFileSync(ADMIN_CONFIG_PATH, JSON.stringify(config, null, 2));
+}
+
 function loadAdminAllowlist(): Record<string, { enabled: boolean }> {
   try {
     if (fs.existsSync(POLYMARKET_SELECTION_PATH)) {
@@ -84,7 +103,7 @@ function saveStore(store: Record<string, StoredMarket>) {
   currentProjection = store;
 }
 
-async function fetchGammaCached(): Promise<CuratedMarket[]> {
+async function fetchGammaCached(forceRefresh = false): Promise<CuratedMarket[]> {
   let cache: GammaCache = { lastFetchedAt: 0, markets: [] };
   if (fs.existsSync(GAMMA_CACHE_PATH)) {
     try {
@@ -95,8 +114,8 @@ async function fetchGammaCached(): Promise<CuratedMarket[]> {
   }
 
   const now = Date.now();
-  if (now - cache.lastFetchedAt > GAMMA_REFRESH_INTERVAL_MS || cache.markets.length === 0) {
-    console.log(`[GAMMA FETCH] timestamp=${new Date().toISOString()} reason=scheduled`);
+  if (forceRefresh || now - cache.lastFetchedAt > GAMMA_REFRESH_INTERVAL_MS || cache.markets.length === 0) {
+    console.log(`[GAMMA FETCH] timestamp=${new Date().toISOString()} reason=${forceRefresh ? 'manual' : 'scheduled'}`);
     const start = Date.now();
     try {
       const fetched = await collectActiveBinaryMarkets(100);
@@ -105,10 +124,16 @@ async function fetchGammaCached(): Promise<CuratedMarket[]> {
       cache = { lastFetchedAt: now, markets: fetched };
       fs.mkdirSync(path.dirname(GAMMA_CACHE_PATH), { recursive: true });
       fs.writeFileSync(GAMMA_CACHE_PATH, JSON.stringify(cache, null, 2));
+      
+      const adminConfig = loadAdminConfig();
+      adminConfig.lastGammaFetchTs = now;
+      adminConfig.lastGammaFetchCount = fetched.length;
+      saveAdminConfig(adminConfig);
     } catch (err) {
       const duration = Date.now() - start;
       console.error(`[GAMMA FETCH] Fetch failed markets=0 duration=${duration}ms success=false error="${String(err)}"`);
       console.log(`[GAMMA FETCH] Using cached markets`);
+      if (forceRefresh) throw err;
     }
   }
   return cache.markets;
@@ -215,30 +240,8 @@ async function tick() {
       }
     }
 
-    const gammaMarkets = await fetchGammaCached();
-    const allowlist = loadAdminAllowlist();
-
-    // Keep track of which polymarket IDs we already have native PRISM markets for
-    const existingIds = new Set<string>();
-    for (const m of Object.values(store)) {
-      if (m.polymarketId) existingIds.add(m.polymarketId);
-    }
-
-    for (const gm of gammaMarkets) {
-      if (gm.closed) continue;
-      
-      // Deduplicate: If PRISM already has a native market for this ID, do not add the external one
-      if (existingIds.has(gm.polymarketId)) continue;
-      
-      store[`polymarket:${gm.polymarketId}`] = {
-        ...gm,
-        status: "open",
-        closed: false,
-        pubkey: undefined,
-        source: "polymarket",
-        createdAt: new Date().toISOString(),
-      } as unknown as StoredMarket;
-    }
+    // We no longer automatically import all Gamma markets.
+    // They must be manually activated via the Admin UI.
 
     saveStore(store);
     await persistToDb(store);
@@ -256,13 +259,35 @@ const origin = process.env.CORS_ORIGIN || "*";
 app.use(cors({ origin }));
 app.use(express.json());
 
-app.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "prism-indexer", timestamp: new Date().toISOString() });
+const requireAdmin = (req: any, res: any, next: any) => {
+  const authHeader = req.headers.authorization;
+  const adminSecret = process.env.ADMIN_SECRET || "prism-admin-secret";
+  if (authHeader === `Bearer ${adminSecret}`) {
+    next();
+  } else {
+    res.status(401).json({ error: "Unauthorized" });
+  }
+};
+
+app.get("/health", async (req, res) => {
+  let tigerdbStatus = "ok";
+  try {
+    await tigerdb.query("SELECT 1");
+  } catch {
+    tigerdbStatus = "error";
+  }
+  res.json({ status: "ok", service: "prism-indexer", tigerdb: tigerdbStatus, timestamp: new Date().toISOString() });
 });
 
-app.get("/ready", (req, res) => {
-  if (isReady) res.status(200).json({ ready: true });
-  else res.status(503).json({ ready: false });
+app.get("/ready", async (req, res) => {
+  let tigerReady = true;
+  try {
+    await tigerdb.query("SELECT 1");
+  } catch {
+    tigerReady = false;
+  }
+  if (isReady) res.status(200).json({ ready: true, tigerdb: tigerReady });
+  else res.status(503).json({ ready: false, tigerdb: tigerReady });
 });
 
 app.get("/markets.json", (req, res) => {
@@ -289,9 +314,19 @@ app.get("/api/admin/gamma", async (req, res) => {
   }
 });
 
-app.post("/api/admin/markets/:polymarketId/activate", async (req, res) => {
+app.post("/api/admin/markets/:polymarketId/activate", requireAdmin, async (req, res) => {
   try {
     const { polymarketId } = req.params;
+    
+    const adminConfig = loadAdminConfig();
+    const globalPrismEndTs = adminConfig.globalPrismEndTs;
+    if (!globalPrismEndTs) {
+      return res.status(400).json({ error: "Global PRISM market end date is not configured" });
+    }
+    if (globalPrismEndTs <= Math.floor(Date.now() / 1000)) {
+      return res.status(400).json({ error: "PRISM market end date must be in the future" });
+    }
+
     const markets = await fetchGammaCached();
     const market = markets.find(m => m.polymarketId === polymarketId);
     if (!market) {
@@ -309,6 +344,11 @@ app.post("/api/admin/markets/:polymarketId/activate", async (req, res) => {
     }
 
     const cfg = await loadConfig();
+    
+    // Store gamma end ts explicitly and use global prism end ts
+    const gammaEndTs = market.endTs;
+    market.endTs = globalPrismEndTs;
+    
     // 50/50 starting point via 5000 bps
     market.priceYesBps = 5000;
     const pubkey = await createMarketOnChain(cfg, market);
@@ -319,7 +359,11 @@ app.post("/api/admin/markets/:polymarketId/activate", async (req, res) => {
       pubkey,
       status: "open",
       createdAt: new Date().toISOString(),
-      raw: market.raw
+      raw: {
+        ...market.raw,
+        gammaEndTs,
+        prismEndTs: globalPrismEndTs,
+      }
     } as any;
 
     currentProjection[`polymarket:${polymarketId}`] = stored;
@@ -337,7 +381,7 @@ app.post("/api/admin/markets/:polymarketId/activate", async (req, res) => {
   }
 });
 
-app.post("/api/admin/markets/:prismMarketId/stop", async (req, res) => {
+app.post("/api/admin/markets/:prismMarketId/stop", requireAdmin, async (req, res) => {
   try {
     const { prismMarketId } = req.params;
     let foundKey: string | null = null;
@@ -374,6 +418,109 @@ app.post("/api/admin/markets/:prismMarketId/stop", async (req, res) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/admin/config", requireAdmin, (req, res) => {
+  try {
+    const adminConfig = loadAdminConfig();
+    res.json(adminConfig);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/api/admin/config/prism-end-date", requireAdmin, (req, res) => {
+  try {
+    const { prismEndTs } = req.body;
+    const adminConfig = loadAdminConfig();
+    adminConfig.globalPrismEndTs = prismEndTs;
+    saveAdminConfig(adminConfig);
+    res.json({ success: true, prismEndTs });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/admin/gamma/fetch", requireAdmin, async (req, res) => {
+  try {
+    const start = Date.now();
+    const fetched = await fetchGammaCached(true);
+    res.json({
+      success: true,
+      fetched: fetched.length,
+      updated: fetched.length,
+      new: fetched.length, // approximation for UI
+      timestamp: new Date().toISOString(),
+      source: "polymarket-gamma",
+      duration: Date.now() - start
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Comments API
+app.get("/api/markets/:marketId/comments", async (req, res) => {
+  try {
+    const { marketId } = req.params;
+    const limit = 200;
+    const query = `
+      SELECT id, prism_market_id, polymarket_id, username, wallet_address, message, created_at
+      FROM market_comments
+      WHERE prism_market_id = $1 AND is_deleted = FALSE
+      ORDER BY created_at ASC
+      LIMIT $2;
+    `;
+    const result = await tigerdb.query(query, [marketId, limit]);
+    res.json({ comments: result.rows });
+  } catch (err: any) {
+    console.error("[tigerdb] fetch comments error:", err.message);
+    res.status(500).json({ error: "Failed to fetch comments" });
+  }
+});
+
+const commentsRateLimits = new Map<string, number[]>();
+
+app.post("/api/markets/:marketId/comments", async (req, res) => {
+  try {
+    const { marketId } = req.params;
+    let { username, message, walletAddress } = req.body;
+
+    if (!username || typeof username !== 'string' || username.trim() === '') {
+      return res.status(400).json({ error: "Username is required" });
+    }
+    if (!message || typeof message !== 'string' || message.trim() === '') {
+      return res.status(400).json({ error: "Message is required" });
+    }
+    
+    username = username.trim().substring(0, 64);
+    message = message.trim().substring(0, 2000);
+    const wAddr = (typeof walletAddress === 'string' && walletAddress.trim() !== '') ? walletAddress.trim().substring(0, 64) : null;
+
+    // Lightweight rate limiter: 5 comments per minute per username
+    const now = Date.now();
+    const windowMs = 60 * 1000;
+    const limit = 5;
+    
+    const userLimits = commentsRateLimits.get(username) || [];
+    const validLimits = userLimits.filter(t => now - t < windowMs);
+    if (validLimits.length >= limit) {
+      return res.status(429).json({ error: "Too many comments. Please wait a moment." });
+    }
+    validLimits.push(now);
+    commentsRateLimits.set(username, validLimits);
+
+    const query = `
+      INSERT INTO market_comments (prism_market_id, username, wallet_address, message)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, prism_market_id, polymarket_id, username, wallet_address, message, created_at;
+    `;
+    const result = await tigerdb.query(query, [marketId, username, wAddr, message]);
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    console.error("[tigerdb] insert comment error:", err.message);
+    res.status(500).json({ error: "Failed to post comment" });
   }
 });
 
@@ -436,6 +583,7 @@ async function shutdown(signal: string) {
   }
   
   await pgPool.end();
+  await tigerdb.end().catch(() => {});
   console.log("[INFO] PostgreSQL pool closed");
   process.exit(0);
 }

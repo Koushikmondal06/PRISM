@@ -36,6 +36,7 @@ import idl from "./idl/prism.json";
 import AdminPage from "./AdminPage";
 import TransactionHistoryPage from "./TransactionHistoryPage";
 import MarketActivity from "./MarketActivity";
+import { MarketComments } from "./components/MarketComments";
 import LandingPage from "./LandingPage";
 import LandingContent from "./LandingContent";
 import { GradientWave } from "./GradientWave";
@@ -435,7 +436,7 @@ export default function App() {
   const prismNoPct = prismNoPctNum.toFixed(1);
 
   let currentStatus = onChainState?.status || active?.status || "open";
-  const activeEndTs = Number(onChainState?.endTs || active?.end_ts || active?.endTs || 0);
+  const activeEndTs = Number((onChainState as any)?.endTs || active?.raw?.prismEndTs || (active as any)?.end_ts || active?.endTs || 0);
   if (currentStatus === "open" && activeEndTs > 0 && Date.now() / 1000 > activeEndTs) {
     currentStatus = "frozen";
   }
@@ -503,7 +504,7 @@ export default function App() {
 
       if (categoryFilter !== "ALL") {
         const cat = categoryFilter.toLowerCase();
-        const hasTag = m.aiTags?.some((t) => t.toLowerCase().includes(cat));
+        const hasTag = m.aiTags?.some((t: any) => t.toLowerCase().includes(cat));
         const hasText = (m.question || "").toLowerCase().includes(cat) || (m.aiTitle || "").toLowerCase().includes(cat);
         if (!hasTag && !hasText) return false;
       }
@@ -512,7 +513,7 @@ export default function App() {
         const q = searchQuery.toLowerCase().trim();
         const inQuestion = (m.question || "").toLowerCase().includes(q);
         const inTitle = (m.aiTitle || "").toLowerCase().includes(q);
-        const inTags = m.aiTags?.some((t) => t.toLowerCase().includes(q));
+        const inTags = m.aiTags?.some((t: any) => t.toLowerCase().includes(q));
         const inId = (m.polymarketId || "").toLowerCase().includes(q);
         if (!inQuestion && !inTitle && !inTags && !inId) return false;
       }
@@ -777,7 +778,7 @@ export default function App() {
                     {/* AI Tags */}
                     {active.aiTags && active.aiTags.length > 0 && (
                       <div className="tags-row">
-                        {active.aiTags.map((tag, idx) => (
+                        {active.aiTags.map((tag: any, idx: any) => (
                           <span key={idx} className="tag-chip">
                             #{tag}
                           </span>
@@ -797,7 +798,7 @@ export default function App() {
 
                     {/* Expiration & Status Info */}
                     <div style={{ fontSize: "0.85rem", color: "var(--ink-secondary)", display: "flex", gap: "1rem" }}>
-                      <span>Ends: <strong>{new Date(active.endTs * 1000).toLocaleString()}</strong></span>
+                      <span>PRISM End: <strong>{new Date((active.raw?.prismEndTs || active.endTs) * 1000).toLocaleString()}</strong></span>
                       <span>Status: <strong style={{ textTransform: "uppercase", color: currentStatus === "open" ? "var(--yes-color)" : currentStatus === "frozen" ? "var(--amber-color)" : "var(--no-color)" }}>{currentStatus}</strong></span>
                     </div>
 
@@ -816,7 +817,7 @@ export default function App() {
                             <div className="gauge-fill-yes" style={{ width: `${polyYesPctNum}%` }} />
                           </div>
                           <div style={{ fontSize: "0.85rem", color: "var(--ink-secondary)", marginTop: "12px" }}>
-                            Ends: {new Date(active.endTs * 1000).toLocaleString()}
+                            Polymarket End: {new Date((active.raw?.gammaEndTs || active.endTs) * 1000).toLocaleString()}
                           </div>
                         </div>
 
@@ -829,8 +830,9 @@ export default function App() {
                           <div className="gauge-track">
                             <div className="gauge-fill-yes" style={{ width: `${prismYesPctNum}%` }} />
                           </div>
-                          <div style={{ fontSize: "0.85rem", color: "var(--ink-secondary)", marginTop: "12px" }}>
-                            Liquidity: ${(onChainState?.lmsrB || active.lmsr_b || 1000000) / 1000}
+                          <div style={{ fontSize: "0.85rem", color: "var(--ink-secondary)", marginTop: "12px", display: "flex", justifyContent: "space-between" }}>
+                            <span>PRISM End: {new Date((active.raw?.prismEndTs || active.endTs) * 1000).toLocaleString()}</span>
+                            <span>Liquidity: ${(onChainState?.lmsrB || active.lmsr_b || 1000000) / 1000}</span>
                           </div>
                         </div>
                       </>
@@ -1113,6 +1115,9 @@ export default function App() {
                       marketPda={active.pubkey || marketPda(active.polymarketId)[0].toBase58()}
                       refreshTrigger={refreshCounter}
                     />
+                    
+                    {/* Market Comments */}
+                    <MarketComments marketId={active.source === "prism" && active.pubkey ? active.pubkey : active.polymarketId} />
                   </>
                 )}
               </ErrorBoundary>
