@@ -139,6 +139,7 @@ export default function App() {
     winningOutcome: number | null;
     status: string;
     usdcMint?: string;
+    endTs?: number;
   } | null>(null);
   
   const [refreshCounter, setRefreshCounter] = useState(0);
@@ -233,6 +234,7 @@ export default function App() {
           winningOutcome: decoded.winningOutcome !== null && decoded.winningOutcome !== undefined ? Number(decoded.winningOutcome) : null,
           status: Object.keys(decoded.status || {})[0]?.toLowerCase() || active.status,
           usdcMint: decoded.usdcMint?.toString(),
+          endTs: decoded.endTs ? Number(decoded.endTs) : undefined,
         });
       } else {
         setOnChainState({
@@ -436,7 +438,7 @@ export default function App() {
   const prismNoPct = prismNoPctNum.toFixed(1);
 
   let currentStatus = onChainState?.status || active?.status || "open";
-  const activeEndTs = Number((onChainState as any)?.endTs || active?.raw?.prismEndTs || (active as any)?.end_ts || active?.endTs || 0);
+  const activeEndTs = Number(onChainState?.endTs || active?.raw?.prismEndTs || (active as any)?.end_ts || active?.endTs || 0);
   if (currentStatus === "open" && activeEndTs > 0 && Date.now() / 1000 > activeEndTs) {
     currentStatus = "frozen";
   }
