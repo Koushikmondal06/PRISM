@@ -150,7 +150,7 @@ export default function App() {
 
   const loadMarkets = useCallback(async () => {
     try {
-      const response = await fetch(`http://api.002014.xyz/markets.json?utm_source=chatgpt.com&t=${Date.now()}`, { cache: "no-store" });
+      const response = await fetch(`https://api.002014.xyz/markets.json?utm_source=chatgpt.com&t=${Date.now()}`, { cache: "no-store" });
       const data = await response.json();
       if (!data) {
         setMarkets([]);
