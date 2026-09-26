@@ -7,6 +7,7 @@ import express from "express";
 import cors from "cors";
 import {
   collectBinaryMarkets,
+  collectActiveBinaryMarkets,
   type StoredMarket,
   type CuratedMarket,
   calculateLmsrPrices,
@@ -98,7 +99,7 @@ async function fetchGammaCached(): Promise<CuratedMarket[]> {
     console.log(`[GAMMA FETCH] timestamp=${new Date().toISOString()} reason=scheduled`);
     const start = Date.now();
     try {
-      const fetched = await collectBinaryMarkets(LIMIT_EVENTS);
+      const fetched = await collectActiveBinaryMarkets(100);
       const duration = Date.now() - start;
       console.log(`[GAMMA FETCH] markets=${fetched.length} duration=${duration}ms success=true`);
       cache = { lastFetchedAt: now, markets: fetched };
@@ -106,7 +107,8 @@ async function fetchGammaCached(): Promise<CuratedMarket[]> {
       fs.writeFileSync(GAMMA_CACHE_PATH, JSON.stringify(cache, null, 2));
     } catch (err) {
       const duration = Date.now() - start;
-      console.error(`[GAMMA FETCH] markets=0 duration=${duration}ms success=false error="${String(err)}"`);
+      console.error(`[GAMMA FETCH] Fetch failed markets=0 duration=${duration}ms success=false error="${String(err)}"`);
+      console.log(`[GAMMA FETCH] Using cached markets`);
     }
   }
   return cache.markets;
@@ -216,19 +218,26 @@ async function tick() {
     const gammaMarkets = await fetchGammaCached();
     const allowlist = loadAdminAllowlist();
 
+    // Keep track of which polymarket IDs we already have native PRISM markets for
+    const existingIds = new Set<string>();
+    for (const m of Object.values(store)) {
+      if (m.polymarketId) existingIds.add(m.polymarketId);
+    }
+
     for (const gm of gammaMarkets) {
-      if (gm.closed) continue; // Note: active boolean might not be in CuratedMarket, just closed
-      const config = allowlist[gm.polymarketId];
-      if (config && config.enabled) {
-        store[`polymarket:${gm.polymarketId}`] = {
-          ...gm,
-          status: "open",
-          closed: false,
-          pubkey: undefined,
-          source: "polymarket",
-          createdAt: new Date().toISOString(),
-        } as unknown as StoredMarket;
-      }
+      if (gm.closed) continue;
+      
+      // Deduplicate: If PRISM already has a native market for this ID, do not add the external one
+      if (existingIds.has(gm.polymarketId)) continue;
+      
+      store[`polymarket:${gm.polymarketId}`] = {
+        ...gm,
+        status: "open",
+        closed: false,
+        pubkey: undefined,
+        source: "polymarket",
+        createdAt: new Date().toISOString(),
+      } as unknown as StoredMarket;
     }
 
     saveStore(store);

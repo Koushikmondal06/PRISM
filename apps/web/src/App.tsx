@@ -150,7 +150,7 @@ export default function App() {
 
   const loadMarkets = useCallback(async () => {
     try {
-      const response = await fetch(`/markets.json?t=${Date.now()}`, { cache: "no-store" });
+      const response = await fetch(`http://api.002014.xyz/markets.json?utm_source=chatgpt.com&t=${Date.now()}`, { cache: "no-store" });
       const data = await response.json();
       if (!data) {
         setMarkets([]);
@@ -280,6 +280,10 @@ export default function App() {
   async function trade(side: "buy" | "sell", outcome: 0 | 1) {
     if (!program || !wallet.publicKey || !active) {
       setMsg("Connect your wallet to trade on PRISM.");
+      return;
+    }
+    if (active.source === "polymarket") {
+      setMsg("This is an external Polymarket reference market. PRISM trading is not supported.");
       return;
     }
     const shareAmount = Math.round(Number(shares) * 1_000_000);
@@ -851,7 +855,15 @@ export default function App() {
                     </div>
 
                     {/* Trade Widget Box */}
-                    {currentStatus === "open" && (
+                    {currentStatus === "open" && active.source === "polymarket" && (
+                      <div className="trade-card-box external-market-notice" style={{ padding: "1.5rem", textAlign: "center", color: "var(--text-secondary)" }}>
+                        <p style={{ marginBottom: 0 }}>
+                          This is an external market imported from Polymarket Gamma API.
+                          <br />PRISM Anchor trading is not supported.
+                        </p>
+                      </div>
+                    )}
+                    {currentStatus === "open" && active.source !== "polymarket" && (
                       <div className="trade-card-box">
                         <div className="trade-outcome-toggle">
                           <button

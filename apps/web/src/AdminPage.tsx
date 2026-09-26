@@ -284,7 +284,7 @@ export default function AdminPage() {
   };
 
   const loadMarkets = () => {
-    fetch("/markets.json", { cache: "no-store" })
+    fetch("http://api.002014.xyz/markets.json?utm_source=chatgpt.com", { cache: "no-store" })
       .then(r => r.json())
       .then(data => {
         const list = Object.values(data).filter((m: any) => m.source === "prism");
