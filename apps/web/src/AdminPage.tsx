@@ -163,7 +163,7 @@ function AdminMarketItem({ m, program, wallet, setMarkets }: any) {
           <span style={{ color: "var(--yes-color)", fontWeight: "bold", fontSize: "0.88rem" }}>[ Active Trading Window ]</span>
         )}
         
-        {m.status === "open" && Math.floor(Date.now() / 1000) >= m.endTs && (
+        {m.status === "open" && Math.floor(Date.now() / 1000) >= m.endTs && m.source !== "polymarket" && (
           <button 
             type="button"
             onClick={async () => {
@@ -184,7 +184,7 @@ function AdminMarketItem({ m, program, wallet, setMarkets }: any) {
           </button>
         )}
         
-        {m.status === "frozen" && (
+        {m.status === "frozen" && m.source !== "polymarket" && (
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             <strong style={{ color: "var(--ink-primary)" }}>SUBMIT ORACLE WINNER:</strong>
             <button 
@@ -287,7 +287,7 @@ export default function AdminPage() {
     fetch("https://api.002014.xyz/markets.json?utm_source=chatgpt.com", { cache: "no-store" })
       .then(r => r.json())
       .then(data => {
-        const list = Object.values(data).filter((m: any) => m.source === "prism");
+        const list = Object.values(data);
         list.sort((a: any, b: any) => b.endTs - a.endTs);
         setMarkets(list);
       })
