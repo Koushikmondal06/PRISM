@@ -237,15 +237,7 @@ export default function App() {
           endTs: decoded.endTs ? Number(decoded.endTs) : undefined,
         });
       } else {
-        setOnChainState({
-          yesSupply: 0,
-          noSupply: 0,
-          lmsrB: active.lmsr_b || 1_000_000,
-          aiResolutionConfidence: 100,
-          winningOutcome: active.winningOutcome,
-          status: active.status,
-          usdcMint: USDC_MINT.toBase58(),
-        });
+        setOnChainState(null);
       }
     } catch {
       setOnChainState(null);
@@ -898,7 +890,7 @@ export default function App() {
                     </div>
 
 
-                    {currentStatus === "open" && (
+                    {currentStatus === "open" && onChainState ? (
                       <div className="trade-card-box">
                         <div className="trade-outcome-toggle">
                           <button
@@ -1004,7 +996,11 @@ export default function App() {
                           </button>
                         </div>
                       </div>
-                    )}
+                    ) : currentStatus === "open" && !onChainState ? (
+                      <div style={{ padding: "20px", background: "rgba(255, 255, 255, 0.05)", border: "1px dashed var(--glass-border)", borderRadius: "12px", textAlign: "center", color: "var(--ink-secondary)" }}>
+                        <p style={{ margin: 0 }}>This market has not been activated on PRISM yet.</p>
+                      </div>
+                    ) : null}
 
                     {/* Frozen Banner */}
                     {currentStatus === "frozen" && (
