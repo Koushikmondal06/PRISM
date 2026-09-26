@@ -139,6 +139,10 @@ export default function GammaMarketManager({ gammaMarkets, refreshGamma }: { gam
     return true;
   });
 
+  const totalMarkets = gammaMarkets.length;
+  const eligibleCount = gammaMarkets.filter(m => m.validation?.eligible).length;
+  const filteredCount = totalMarkets - eligibleCount;
+
   return (
     <div style={{ marginTop: "40px", display: "flex", flexDirection: "column", gap: "24px" }}>
       
@@ -169,7 +173,9 @@ export default function GammaMarketManager({ gammaMarkets, refreshGamma }: { gam
             <h3 style={{ margin: "0 0 12px 0", color: "var(--ink-primary)", display: "flex", alignItems: "center", gap: "8px" }}><RefreshCw size={18} /> GAMMA DATA</h3>
             <div style={{ fontSize: "0.85rem", color: "var(--ink-muted)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
               <div><strong>Last fetched:</strong> {adminConfig.lastGammaFetchTs ? new Date(adminConfig.lastGammaFetchTs).toLocaleString() : "Never"}</div>
-              <div><strong>Markets:</strong> {adminConfig.lastGammaFetchCount || gammaMarkets.length}</div>
+              <div><strong>Total Gamma Markets:</strong> {totalMarkets}</div>
+              <div><strong>Eligible for PRISM:</strong> <span style={{ color: "var(--yes-color)", fontWeight: "bold" }}>{eligibleCount}</span></div>
+              <div><strong>Filtered:</strong> <span style={{ color: "var(--amber-color)", fontWeight: "bold" }}>{filteredCount}</span></div>
             </div>
           </div>
           <div>
@@ -262,14 +268,21 @@ export default function GammaMarketManager({ gammaMarkets, refreshGamma }: { gam
                     
                     <div style={{ marginTop: "16px", display: "flex", gap: "10px" }}>
                       {(!m.prismStatus || m.prismStatus === "imported") && (
-                        <button 
-                          onClick={() => activateMarket(m)} 
-                          disabled={busy === m.polymarketId}
-                          style={{ background: "var(--yes-color)", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: busy ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: "6px", fontWeight: "bold" }}
-                        >
-                          {busy === m.polymarketId ? <RefreshCw size={16} className="animate-spin" /> : <PlayCircle size={16} />}
-                          MAKE LIVE
-                        </button>
+                        <>
+                          <button 
+                            onClick={() => activateMarket(m)} 
+                            disabled={busy === m.polymarketId || m.validation?.eligible === false}
+                            style={{ background: m.validation?.eligible === false ? "var(--bg-subtle)" : "var(--yes-color)", color: m.validation?.eligible === false ? "var(--ink-muted)" : "#fff", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: (busy || m.validation?.eligible === false) ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: "6px", fontWeight: "bold" }}
+                          >
+                            {busy === m.polymarketId ? <RefreshCw size={16} className="animate-spin" /> : <PlayCircle size={16} />}
+                            {m.validation?.eligible === false ? "NOT ELIGIBLE" : "MAKE LIVE"}
+                          </button>
+                          {m.validation?.eligible === false && (
+                            <span style={{ color: "var(--amber-color)", fontSize: "0.8rem", alignSelf: "center", fontWeight: "bold" }}>
+                              REASON: {m.validation.rejectionReasons.join(", ")}
+                            </span>
+                          )}
+                        </>
                       )}
                       
                       {m.prismStatus === "open" && (

@@ -15,6 +15,7 @@ export type GammaMarket = {
   outcomePrices?: string;
   volume?: string;
   liquidity?: string;
+  archived?: boolean;
 };
 
 export type GammaEvent = {
@@ -44,6 +45,10 @@ export type CuratedMarket = {
   yesPrice?: number;
   noPrice?: number;
   raw: GammaMarket | any;
+  validation?: {
+    eligible: boolean;
+    rejectionReasons: string[];
+  };
 };
 
 function parseJsonArray(value?: string): string[] {
@@ -122,16 +127,30 @@ function parseAiEnrichment(market: GammaMarket): { title: string; tags: string[]
 
 export function normalizeMarket(market: GammaMarket, event?: GammaEvent): CuratedMarket | null {
   const id = market.id || market.conditionId || market.slug;
-  if (!id) return null;
-
-  const question = (market.question || event?.title || "Untitled market").slice(0, 200);
+  const question = (market.question || event?.title || "").trim();
   const { yesBps, winning, yesPrice, noPrice } = parsePrices(market);
   const lmsr_b = parseLmsrB(market);
+  const endTs = parseEndTs(market, event);
+  
+  const rejectionReasons: string[] = [];
+  
+  if (!id) rejectionReasons.push("MISSING_ID");
+  if (!question) rejectionReasons.push("MISSING_QUESTION");
+  if (market.closed || event?.closed) rejectionReasons.push("CLOSED");
+  if (market.archived) rejectionReasons.push("ARCHIVED");
+  if (!endTs || endTs <= 0) rejectionReasons.push("MISSING_END_DATE");
+  if (yesPrice === undefined || noPrice === undefined || yesPrice < 0 || yesPrice > 1 || noPrice < 0 || noPrice > 1 || (yesPrice === 0 && noPrice === 0)) rejectionReasons.push("INVALID_PRICES");
+
+  const outcomes = parseJsonArray(market.outcomes).map((o) => o.toLowerCase());
+  const isBinary = outcomes.length === 2 && ((outcomes.includes("yes") && outcomes.includes("no")) || outcomes.length === 2);
+  if (!isBinary) rejectionReasons.push("INVALID_OUTCOMES");
+  
+  if (!market.liquidity && !market.volume) rejectionReasons.push("UNSUPPORTED_MARKET");
 
   return {
-    polymarketId: String(id).slice(0, 64),
-    question,
-    endTs: parseEndTs(market, event),
+    polymarketId: String(id || "").slice(0, 64),
+    question: question || "Untitled market",
+    endTs,
     priceYesBps: yesBps,
     yesPrice,
     noPrice,
@@ -145,6 +164,10 @@ export function normalizeMarket(market: GammaMarket, event?: GammaEvent): Curate
     aiSummary: undefined,
     source: "polymarket",
     raw: market,
+    validation: {
+      eligible: rejectionReasons.length === 0,
+      rejectionReasons
+    }
   };
 }
 
@@ -208,15 +231,22 @@ export async function fetchActiveGammaMarkets(limit = 100): Promise<GammaMarket[
 export async function collectActiveBinaryMarkets(limit = 100): Promise<CuratedMarket[]> {
   const markets = await fetchActiveGammaMarkets(limit);
   const out: CuratedMarket[] = [];
+  const seenIds = new Set<string>();
 
   for (const market of markets) {
-    const outcomes = parseJsonArray(market.outcomes).map((o) => o.toLowerCase());
-    const isBinary =
-      outcomes.length === 2 &&
-      ((outcomes.includes("yes") && outcomes.includes("no")) || outcomes.length === 2);
-    if (!isBinary) continue;
     const normalized = normalizeMarket(market);
-    if (normalized && !normalized.closed) out.push(normalized);
+    if (!normalized) continue;
+    
+    if (seenIds.has(normalized.polymarketId)) {
+      if (normalized.validation) {
+        normalized.validation.eligible = false;
+        normalized.validation.rejectionReasons.push("DUPLICATE");
+      }
+    } else {
+      seenIds.add(normalized.polymarketId);
+    }
+    
+    out.push(normalized);
   }
 
   return out;
