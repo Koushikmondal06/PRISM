@@ -10,6 +10,8 @@ const PROGRAM_ID = new PublicKey(
   import.meta.env.VITE_PROGRAM_ID || (idl as any).address
 );
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
 function configPda() {
   return PublicKey.findProgramAddressSync([Buffer.from("config_v3")], PROGRAM_ID);
 }
@@ -264,7 +266,7 @@ export default function AdminPage() {
   const [gammaMarkets, setGammaMarkets] = useState<any[]>([]);
 
   const loadGammaMarkets = () => {
-    fetch("https://api.002014.xyz/api/admin/gamma")
+    fetch(`${API_URL}/api/admin/gamma`)
       .then(r => r.json())
       .then(data => setGammaMarkets(data))
       .catch(console.error);
@@ -273,7 +275,7 @@ export default function AdminPage() {
 
 
   const loadMarkets = () => {
-    fetch("https://api.002014.xyz/markets.json?utm_source=chatgpt.com", { cache: "no-store" })
+    fetch(`${API_URL}/markets.json?utm_source=chatgpt.com`, { cache: "no-store" })
       .then(r => r.json())
       .then(data => {
         const list = Object.values(data);

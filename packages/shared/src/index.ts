@@ -191,9 +191,17 @@ export async function fetchActiveGammaMarkets(limit = 100): Promise<GammaMarket[
   const res = await fetch(url, {
     headers: { Accept: "application/json" },
   });
+
   if (!res.ok) {
-    throw new Error(`Gamma API ${res.status}: ${await res.text()}`);
+    throw new Error(`Gamma API returned HTTP ${res.status}`);
   }
+
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    const text = await res.text();
+    throw new Error(`Gamma API returned non-JSON response: ${contentType}`);
+  }
+
   return (await res.json()) as GammaMarket[];
 }
 

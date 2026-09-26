@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { RefreshCw, PlayCircle, StopCircle, Info, Tag, Clock, Calendar, CheckCircle } from "lucide-react";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
 export default function GammaMarketManager({ gammaMarkets, refreshGamma }: { gammaMarkets: any[], refreshGamma: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -12,7 +14,7 @@ export default function GammaMarketManager({ gammaMarkets, refreshGamma }: { gam
   const [globalTimeStr, setGlobalTimeStr] = useState("");
 
   const loadConfig = () => {
-    fetch("https://api.002014.xyz/api/admin/config", {
+    fetch(`${API_URL}/api/admin/config`, {
       headers: { "Authorization": "Bearer prism-admin-secret" }
     })
       .then(r => r.json())
@@ -37,7 +39,7 @@ export default function GammaMarketManager({ gammaMarkets, refreshGamma }: { gam
     
     setBusy("config");
     try {
-      const res = await fetch("https://api.002014.xyz/api/admin/config/prism-end-date", {
+      const res = await fetch(`${API_URL}/api/admin/config/prism-end-date`, {
         method: "PUT",
         headers: { 
           "Content-Type": "application/json",
@@ -58,7 +60,7 @@ export default function GammaMarketManager({ gammaMarkets, refreshGamma }: { gam
   const fetchGammaManual = async () => {
     setBusy("fetch");
     try {
-      const res = await fetch("https://api.002014.xyz/api/admin/gamma/fetch", { 
+      const res = await fetch(`${API_URL}/api/admin/gamma/fetch`, { 
         method: "POST",
         headers: { "Authorization": "Bearer prism-admin-secret" }
       });
@@ -85,7 +87,7 @@ export default function GammaMarketManager({ gammaMarkets, refreshGamma }: { gam
     
     setBusy(market.polymarketId);
     try {
-      const res = await fetch(`https://api.002014.xyz/api/admin/markets/${market.polymarketId}/activate`, {
+      const res = await fetch(`${API_URL}/api/admin/markets/${market.polymarketId}/activate`, {
         method: "POST",
         headers: { "Authorization": "Bearer prism-admin-secret" }
       });
@@ -110,7 +112,7 @@ export default function GammaMarketManager({ gammaMarkets, refreshGamma }: { gam
     
     setBusy(market.polymarketId);
     try {
-      const res = await fetch(`https://api.002014.xyz/api/admin/markets/${market.prismMarketPubkey}/stop`, {
+      const res = await fetch(`${API_URL}/api/admin/markets/${market.prismMarketPubkey}/stop`, {
         method: "POST",
         headers: { "Authorization": "Bearer prism-admin-secret" }
       });

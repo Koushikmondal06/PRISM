@@ -49,6 +49,8 @@ const USDC_MINT = new PublicKey(
   import.meta.env.VITE_USDC_MINT || "Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr"
 );
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
+
 function configPda() {
   return PublicKey.findProgramAddressSync([Buffer.from("config_v3")], PROGRAM_ID);
 }
@@ -152,7 +154,7 @@ export default function App() {
 
   const loadMarkets = useCallback(async () => {
     try {
-      const response = await fetch(`https://api.002014.xyz/markets.json?utm_source=chatgpt.com&t=${Date.now()}`, { cache: "no-store" });
+      const response = await fetch(`${API_URL}/markets.json?utm_source=chatgpt.com&t=${Date.now()}`, { cache: "no-store" });
       const data = await response.json();
       if (!data) {
         setMarkets([]);
