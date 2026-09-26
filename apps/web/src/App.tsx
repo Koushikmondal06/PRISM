@@ -1049,7 +1049,7 @@ export default function App() {
                     )}
 
                     {/* Live Position Summary Card */}
-                    {position && currentStatus !== "resolved" && (
+                    {position && currentStatus !== "resolved" && active.source !== "polymarket" && (
                       <div className="position-card">
                         <h4 className="position-title">
                           <Coins size={16} color="var(--accent-cyan)" /> Your On-Chain Position
@@ -1077,11 +1077,13 @@ export default function App() {
                     )}
 
                     {/* Recent Activity Feed */}
-                    <MarketActivity
-                      market={active}
-                      marketPda={active.pubkey || marketPda(active.polymarketId)[0].toBase58()}
-                      refreshTrigger={refreshCounter}
-                    />
+                    {active.source !== "polymarket" && (
+                      <MarketActivity
+                        market={active}
+                        marketPda={active.pubkey || marketPda(active.polymarketId)[0].toBase58()}
+                        refreshTrigger={refreshCounter}
+                      />
+                    )}
                   </>
                 )}
               </ErrorBoundary>
