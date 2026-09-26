@@ -263,7 +263,7 @@ export default function AdminPage() {
   const [gammaMarkets, setGammaMarkets] = useState<any[]>([]);
 
   const loadGammaMarkets = () => {
-    fetch("http://localhost:3000/api/admin/gamma")
+    fetch("https://api.002014.xyz/api/admin/gamma")
       .then(r => r.json())
       .then(data => setGammaMarkets(data))
       .catch(console.error);
@@ -271,7 +271,7 @@ export default function AdminPage() {
 
   const toggleGammaMarket = async (polymarketId: string, enabled: boolean) => {
     try {
-      await fetch("http://localhost:3000/api/admin/gamma/toggle", {
+      await fetch("https://api.002014.xyz/api/admin/gamma/toggle", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ polymarketId, enabled }),
