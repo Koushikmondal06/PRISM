@@ -12,7 +12,7 @@ import {
   type CuratedMarket,
   calculateLmsrPrices,
 } from "@prism/shared";
-import { loadConfig } from "./solana.js";
+import { loadConfig, createMarketOnChain, freezeMarketOnChain } from "./solana.js";
 import pg from "pg";
 
 // Uncaught Error Handlers
@@ -272,29 +272,106 @@ app.get("/markets.json", (req, res) => {
 app.get("/api/admin/gamma", async (req, res) => {
   try {
     const markets = await fetchGammaCached();
-    const allowlist = loadAdminAllowlist();
-    const withState = markets.map(m => ({
-      ...m,
-      enabled: allowlist[m.polymarketId]?.enabled || false
-    }));
-    res.json(withState);
+    // Return them straight away.
+    // We can also augment them with their PRISM state if found in currentProjection
+    const mapped = markets.map(m => {
+      const prismId = `polymarket:${m.polymarketId}`;
+      const found = currentProjection[prismId];
+      return {
+        ...m,
+        prismStatus: found ? found.status : "imported",
+        prismMarketPubkey: found?.pubkey || undefined,
+      };
+    });
+    res.json(mapped);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post("/api/admin/gamma/toggle", (req, res) => {
+app.post("/api/admin/markets/:polymarketId/activate", async (req, res) => {
   try {
-    const { polymarketId, enabled } = req.body;
-    const allowlist = loadAdminAllowlist();
-    allowlist[polymarketId] = { enabled };
+    const { polymarketId } = req.params;
+    const markets = await fetchGammaCached();
+    const market = markets.find(m => m.polymarketId === polymarketId);
+    if (!market) {
+      return res.status(404).json({ error: "Market not found in Gamma cache" });
+    }
+
+    if (currentProjection[`polymarket:${polymarketId}`]) {
+      return res.json({ 
+        success: true, 
+        polymarketId, 
+        prismMarketPubkey: currentProjection[`polymarket:${polymarketId}`].pubkey,
+        status: "live",
+        message: "Already active"
+      });
+    }
+
+    const cfg = await loadConfig();
+    // 50/50 starting point via 5000 bps
+    market.priceYesBps = 5000;
+    const pubkey = await createMarketOnChain(cfg, market);
+
+    const stored: StoredMarket = {
+      ...market,
+      source: "polymarket",
+      pubkey,
+      status: "open",
+      createdAt: new Date().toISOString(),
+      raw: market.raw
+    } as any;
+
+    currentProjection[`polymarket:${polymarketId}`] = stored;
+    saveStore(currentProjection);
+    await persistToDb(currentProjection);
+
+    res.json({
+      success: true,
+      polymarketId,
+      prismMarketPubkey: pubkey,
+      status: "live"
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/admin/markets/:prismMarketId/stop", async (req, res) => {
+  try {
+    const { prismMarketId } = req.params;
+    let foundKey: string | null = null;
+    let foundMarket: StoredMarket | null = null;
     
-    fs.mkdirSync(path.dirname(POLYMARKET_SELECTION_PATH), { recursive: true });
-    const tmpPath = `${POLYMARKET_SELECTION_PATH}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify({ markets: allowlist }, null, 2));
-    fs.renameSync(tmpPath, POLYMARKET_SELECTION_PATH);
-    
-    res.json({ success: true, polymarketId, enabled });
+    for (const [k, v] of Object.entries(currentProjection)) {
+      if (v.pubkey === prismMarketId) {
+        foundKey = k;
+        foundMarket = v;
+        break;
+      }
+    }
+
+    if (!foundKey || !foundMarket) {
+      return res.status(404).json({ error: "Market not found" });
+    }
+
+    if (foundMarket.status !== "open") {
+      return res.status(400).json({ error: `Market is ${foundMarket.status}, cannot stop` });
+    }
+
+    const cfg = await loadConfig();
+    await freezeMarketOnChain(cfg, prismMarketId);
+
+    foundMarket.status = "frozen";
+    currentProjection[foundKey] = foundMarket;
+    saveStore(currentProjection);
+    await persistToDb(currentProjection);
+
+    res.json({
+      success: true,
+      prismMarketPubkey: prismMarketId,
+      status: "frozen"
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

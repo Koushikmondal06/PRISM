@@ -130,5 +130,20 @@ export async function createMarketOnChain(
   return marketKey.toBase58();
 }
 
+export async function freezeMarketOnChain(
+  cfg: IndexerConfig,
+  marketKeyStr: string
+): Promise<string> {
+  const marketKey = new PublicKey(marketKeyStr);
+  const tx = await cfg.program.methods
+    .freeze()
+    .accounts({
+      oracle: cfg.authority.publicKey,
+      market: marketKey,
+    })
+    .rpc();
+  return tx;
+}
+
 // re-export helper for ATA if needed later
 export { getAssociatedTokenAddressSync };

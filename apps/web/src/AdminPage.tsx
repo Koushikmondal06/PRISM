@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { AnchorProvider, Program, BN, utils } from "@coral-xyz/anchor";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import GammaMarketManager from "./GammaMarketManager";
 import { ShieldCheck, PlusCircle, Lock, Award, AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import idl from "./idl/prism.json";
 
@@ -269,19 +270,7 @@ export default function AdminPage() {
       .catch(console.error);
   };
 
-  const toggleGammaMarket = async (polymarketId: string, enabled: boolean) => {
-    try {
-      await fetch("https://api.002014.xyz/api/admin/gamma/toggle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ polymarketId, enabled }),
-      });
-      setGammaMarkets(prev => prev.map(m => m.polymarketId === polymarketId ? { ...m, enabled } : m));
-    } catch (e) {
-      console.error(e);
-      alert("Failed to toggle market");
-    }
-  };
+
 
   const loadMarkets = () => {
     fetch("https://api.002014.xyz/markets.json?utm_source=chatgpt.com", { cache: "no-store" })
@@ -480,32 +469,7 @@ export default function AdminPage() {
       )}
 
       {isAdmin && (
-        <div style={{ marginTop: "40px" }}>
-          <h3>POLYMARKET MARKETS (ADMIN)</h3>
-          <p style={{ color: "#888", fontSize: "0.9em" }}>Select which Polymarket markets are publicly visible. These markets are fetched by the indexer.</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {gammaMarkets.length === 0 ? <p>No cached Gamma markets found.</p> : gammaMarkets.map((m: any) => (
-              <div key={m.polymarketId} style={{ padding: "10px", background: "#1a1a1a", border: "1px solid #333", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <h5 style={{ margin: "0 0 5px 0", color: "#fff" }}>{m.question}</h5>
-                  <div style={{ fontSize: "0.8em", color: "#888", display: "flex", gap: "15px" }}>
-                    <span>ID: {m.polymarketId}</span>
-                    <span>Active: {m.active ? "Yes" : "No"}</span>
-                    <span>Closed: {m.closed ? "Yes" : "No"}</span>
-                    <span>Prices: Y:{(m.yesPrice*100).toFixed(1)}% N:{(m.noPrice*100).toFixed(1)}%</span>
-                  </div>
-                </div>
-                <div>
-                  {m.enabled ? (
-                    <button onClick={() => toggleGammaMarket(m.polymarketId, false)} style={{ background: "#7f1d1d", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer" }}>DISABLE</button>
-                  ) : (
-                    <button onClick={() => toggleGammaMarket(m.polymarketId, true)} style={{ background: "#065f46", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "4px", cursor: "pointer" }}>ENABLE</button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <GammaMarketManager gammaMarkets={gammaMarkets} refreshGamma={loadGammaMarkets} />
       )}
     </div>
   );

@@ -282,10 +282,7 @@ export default function App() {
       setMsg("Connect your wallet to trade on PRISM.");
       return;
     }
-    if (active.source === "polymarket") {
-      setMsg("This is an external Polymarket reference market. PRISM trading is not supported.");
-      return;
-    }
+
     const shareAmount = Math.round(Number(shares) * 1_000_000);
     if (!Number.isFinite(shareAmount) || shareAmount <= 0) {
       setMsg("Please enter a valid share amount.");
@@ -422,17 +419,20 @@ export default function App() {
   }
 
   // Odds and probabilities calculations
-  let yesPctNum = active ? (active.yesPrice ? active.yesPrice * 100 : active.priceYesBps / 100) : 50;
-  let noPctNum = active ? (active.noPrice ? active.noPrice * 100 : 100 - (active.priceYesBps / 100)) : 50;
+  const polyYesPctNum = active ? (active.yesPrice ? active.yesPrice * 100 : active.priceYesBps / 100) : 50;
+  const polyNoPctNum = active ? (active.noPrice ? active.noPrice * 100 : 100 - (active.priceYesBps / 100)) : 50;
+  const polyYesPct = polyYesPctNum.toFixed(1);
+  const polyNoPct = polyNoPctNum.toFixed(1);
 
-  if (onChainState && active?.source === "prism") {
+  let prismYesPctNum = 50;
+  let prismNoPctNum = 50;
+  if (onChainState) {
     const prices = calculateLmsrPrices(onChainState.lmsrB, onChainState.yesSupply, onChainState.noSupply);
-    yesPctNum = prices.yesPrice * 100;
-    noPctNum = prices.noPrice * 100;
+    prismYesPctNum = prices.yesPrice * 100;
+    prismNoPctNum = prices.noPrice * 100;
   }
-
-  const yesPct = yesPctNum.toFixed(1);
-  const noPct = noPctNum.toFixed(1);
+  const prismYesPct = prismYesPctNum.toFixed(1);
+  const prismNoPct = prismNoPctNum.toFixed(1);
 
   let currentStatus = onChainState?.status || active?.status || "open";
   const activeEndTs = Number(onChainState?.endTs || active?.end_ts || active?.endTs || 0);
@@ -477,8 +477,8 @@ export default function App() {
   const userYesShares = (position?.yes || 0) / 1_000_000;
   const userNoShares = (position?.no || 0) / 1_000_000;
 
-  const estimatedYesValue = (userYesShares * yesPctNum) / 100;
-  const estimatedNoValue = (userNoShares * noPctNum) / 100;
+  const estimatedYesValue = (userYesShares * prismYesPctNum) / 100;
+  const estimatedNoValue = (userNoShares * prismNoPctNum) / 100;
 
   const isRedeemable = currentStatus === "resolved" && (onChainState?.aiResolutionConfidence ?? 100) >= 60 && winningShares > 0;
 
@@ -761,7 +761,7 @@ export default function App() {
                     {/* Top Metadata Header */}
                     <div className="stage-eyebrow-row">
                       <div className="stage-eyebrow">
-                        <Sparkles size={16} /> {active.source?.toUpperCase() || "POLYMARKET"} · SOLANA LMSR AMM
+                        <Sparkles size={16} /> {active.source === "prism" ? "PRISM • SOLANA LMSR AMM" : "POLYMARKET • EXTERNAL MARKET"}
                       </div>
 
                       {active.aiScore !== undefined && active.aiScore !== null && (
@@ -801,17 +801,50 @@ export default function App() {
                       <span>Status: <strong style={{ textTransform: "uppercase", color: currentStatus === "open" ? "var(--yes-color)" : currentStatus === "frozen" ? "var(--amber-color)" : "var(--no-color)" }}>{currentStatus}</strong></span>
                     </div>
 
-                    {/* Big Odds Gauge Card */}
-                    <div className="odds-gauge-card">
-                      <div className="odds-labels-row">
-                        <span className="odds-yes-value">YES {yesPct}%</span>
-                        <span className="odds-no-value">NO {noPct}%</span>
-                      </div>
+                    {active.source === "polymarket" ? (
+                      <>
+                        <div className="odds-gauge-card" style={{ marginBottom: "1rem" }}>
+                          <h4 style={{ margin: "0 0 12px 0", fontSize: "0.85rem", color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "1px" }}>POLYMARKET REFERENCE</h4>
+                          <div style={{ fontSize: "0.85rem", color: "var(--ink-muted)", marginBottom: "12px" }}>
+                            Market ID: {active.polymarketId}
+                          </div>
+                          <div className="odds-labels-row">
+                            <span className="odds-yes-value">YES {polyYesPct}%</span>
+                            <span className="odds-no-value">NO {polyNoPct}%</span>
+                          </div>
+                          <div className="gauge-track">
+                            <div className="gauge-fill-yes" style={{ width: `${polyYesPctNum}%` }} />
+                          </div>
+                          <div style={{ fontSize: "0.85rem", color: "var(--ink-secondary)", marginTop: "12px" }}>
+                            Ends: {new Date(active.endTs * 1000).toLocaleString()}
+                          </div>
+                        </div>
 
-                      <div className="gauge-track">
-                        <div className="gauge-fill-yes" style={{ width: `${yesPctNum}%` }} />
+                        <div className="odds-gauge-card">
+                          <h4 style={{ margin: "0 0 12px 0", fontSize: "0.85rem", color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "1px" }}>PRISM LIQUIDITY / LMSR</h4>
+                          <div className="odds-labels-row">
+                            <span className="odds-yes-value">YES {prismYesPct}%</span>
+                            <span className="odds-no-value">NO {prismNoPct}%</span>
+                          </div>
+                          <div className="gauge-track">
+                            <div className="gauge-fill-yes" style={{ width: `${prismYesPctNum}%` }} />
+                          </div>
+                          <div style={{ fontSize: "0.85rem", color: "var(--ink-secondary)", marginTop: "12px" }}>
+                            Liquidity: ${(onChainState?.lmsrB || active.lmsr_b || 1000000) / 1000}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="odds-gauge-card">
+                        <div className="odds-labels-row">
+                          <span className="odds-yes-value">YES {prismYesPct}%</span>
+                          <span className="odds-no-value">NO {prismNoPct}%</span>
+                        </div>
+                        <div className="gauge-track">
+                          <div className="gauge-fill-yes" style={{ width: `${prismYesPctNum}%` }} />
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* Technical Details Toggle */}
                     <div>
@@ -835,35 +868,33 @@ export default function App() {
 
                       {showTechDetails && (
                         <div className="tech-details-box" style={{ marginTop: "0.75rem" }}>
-                          <div>
-                            <strong>Market PDA:</strong> <code>{active.pubkey || marketPda(active.polymarketId)[0].toBase58()}</code>
-                          </div>
-                          <div>
-                            <strong>Vault PDA:</strong> <code>{active.pubkey ? vaultPda(new PublicKey(active.pubkey))[0].toBase58() : vaultPda(marketPda(active.polymarketId)[0])[0].toBase58()}</code>
-                          </div>
-                          <div>
-                            <strong>Config PDA:</strong> <code>{configPda()[0].toBase58()}</code>
-                          </div>
-                          <div>
-                            <strong>USDC Mint:</strong> <code>{USDC_MINT.toBase58()}</code>
-                          </div>
-                          <div>
-                            <strong>LMSR b parameter:</strong> <code>{onChainState?.lmsrB || active.lmsr_b || 1000000}</code>
-                          </div>
+                          {active.source === "polymarket" ? (
+                            <>
+                              <div><strong>Market Source:</strong> <code>Polymarket Reference</code></div>
+                              <div><strong>Polymarket Market ID:</strong> <code>{active.polymarketId}</code></div>
+                              <div><strong>PRISM Market PDA:</strong> <code>{active.pubkey || marketPda(active.polymarketId)[0].toBase58()}</code></div>
+                              <div><strong>PRISM Liquidity:</strong> <code>${(onChainState?.lmsrB || active.lmsr_b || 1000000) / 1000}</code></div>
+                              <div><strong>PRISM AMM:</strong> <code>LMSR (b={onChainState?.lmsrB || active.lmsr_b || 1000000})</code></div>
+                              <div><strong>End Time:</strong> <code>{new Date(active.endTs * 1000).toLocaleString()}</code></div>
+                              <div><strong>Resolution Source:</strong> <code>Polymarket</code></div>
+                            </>
+                          ) : (
+                            <>
+                              <div><strong>Market Source:</strong> <code>Native PRISM Market</code></div>
+                              <div><strong>PRISM Market PDA:</strong> <code>{active.pubkey || marketPda(active.polymarketId)[0].toBase58()}</code></div>
+                              <div><strong>Vault PDA:</strong> <code>{active.pubkey ? vaultPda(new PublicKey(active.pubkey))[0].toBase58() : vaultPda(marketPda(active.polymarketId)[0])[0].toBase58()}</code></div>
+                              <div><strong>Config PDA:</strong> <code>{configPda()[0].toBase58()}</code></div>
+                              <div><strong>USDC Mint:</strong> <code>{USDC_MINT.toBase58()}</code></div>
+                              <div><strong>LMSR b parameter:</strong> <code>{onChainState?.lmsrB || active.lmsr_b || 1000000}</code></div>
+                              <div><strong>Resolution Source:</strong> <code>PRISM Native Oracle</code></div>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
 
-                    {/* Trade Widget Box */}
-                    {currentStatus === "open" && active.source === "polymarket" && (
-                      <div className="trade-card-box external-market-notice" style={{ padding: "1.5rem", textAlign: "center", color: "var(--text-secondary)" }}>
-                        <p style={{ marginBottom: 0 }}>
-                          This is an external market imported from Polymarket Gamma API.
-                          <br />PRISM Anchor trading is not supported.
-                        </p>
-                      </div>
-                    )}
-                    {currentStatus === "open" && active.source !== "polymarket" && (
+
+                    {currentStatus === "open" && (
                       <div className="trade-card-box">
                         <div className="trade-outcome-toggle">
                           <button
@@ -871,14 +902,14 @@ export default function App() {
                             className={`outcome-btn yes-btn ${tradeOutcome === 0 ? "active" : ""}`}
                             onClick={() => setTradeOutcome(0)}
                           >
-                            <CheckCircle2 size={18} /> YES {yesPct}%
+                            <CheckCircle2 size={18} /> YES {prismYesPct}%
                           </button>
                           <button
                             type="button"
                             className={`outcome-btn no-btn ${tradeOutcome === 1 ? "active" : ""}`}
                             onClick={() => setTradeOutcome(1)}
                           >
-                            <AlertTriangle size={18} /> NO {noPct}%
+                            <AlertTriangle size={18} /> NO {prismNoPct}%
                           </button>
                         </div>
 
@@ -1049,7 +1080,7 @@ export default function App() {
                     )}
 
                     {/* Live Position Summary Card */}
-                    {position && currentStatus !== "resolved" && active.source !== "polymarket" && (
+                    {position && currentStatus !== "resolved" && (
                       <div className="position-card">
                         <h4 className="position-title">
                           <Coins size={16} color="var(--accent-cyan)" /> Your On-Chain Position
@@ -1077,13 +1108,11 @@ export default function App() {
                     )}
 
                     {/* Recent Activity Feed */}
-                    {active.source !== "polymarket" && (
-                      <MarketActivity
-                        market={active}
-                        marketPda={active.pubkey || marketPda(active.polymarketId)[0].toBase58()}
-                        refreshTrigger={refreshCounter}
-                      />
-                    )}
+                    <MarketActivity
+                      market={active}
+                      marketPda={active.pubkey || marketPda(active.polymarketId)[0].toBase58()}
+                      refreshTrigger={refreshCounter}
+                    />
                   </>
                 )}
               </ErrorBoundary>
